@@ -464,6 +464,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
             return stampEntityKey.nid();
         }
+
+        // Log detailed information before throwing exception
+        LOG.error("Failed to find entity key for UUIDs: {}", Arrays.toString(uuids));
+        LOG.error("Database location: {}", this.name);
+        LOG.error("This likely indicates starter data has not been imported yet, or the database is empty.");
+        LOG.error("For new databases, ensure DataLoadController is registered and running in DATA_LOAD phase.");
+
         throw new IllegalStateException("No entity key found for UUIDs: " + Arrays.toString(uuids));
     }
 
@@ -1013,7 +1020,15 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                 // Queue data file for loading in DATA_LOAD phase (don't load it now)
                 if (importDataFileString != null) {
                     File importFile = new File(importDataFileString);
-                    LOG.info("Queueing import file for DATA_LOAD phase: {}", importFile.getAbsolutePath());
+                    LOG.info("═══════════════════════════════════════════════════════════");
+                    LOG.info("RocksProvider.NewController: Queueing starter data for deferred import");
+                    LOG.info("  Import file: {}", importFile.getName());
+                    LOG.info("  Full path: {}", importFile.getAbsolutePath());
+                    LOG.info("  File size: {} MB", importFile.length() / (1024.0 * 1024.0));
+                    LOG.info("  Data directory: {}", dataDirectory.getAbsolutePath());
+                    LOG.info("  Loading phase: DATA_LOAD (runs after INDEXING phase)");
+                    LOG.info("  This ensures all required services are ready before import");
+                    LOG.info("═══════════════════════════════════════════════════════════");
 
                     // Get DataLoadProvider singleton and queue the file
                     // DataLoadController will load this during DATA_LOAD phase after all services are ready
@@ -1021,7 +1036,10 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                             dev.ikm.tinkar.entity.load.DataLoadProvider.get();
                     dataLoadService.addFile(importFile);
 
-                    LOG.info("Import file queued - will be loaded after INDEXING phase completes");
+                    LOG.info("Import file successfully queued - DataLoadController will process in DATA_LOAD phase");
+                } else {
+                    LOG.warn("No import file specified - creating empty database");
+                    LOG.warn("Database will not contain starter data (DESCRIPTION_PATTERN, etc.)");
                 }
             } finally {
                 loading.set(false);
