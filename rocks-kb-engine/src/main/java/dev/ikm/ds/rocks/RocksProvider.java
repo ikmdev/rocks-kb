@@ -1,20 +1,19 @@
 package dev.ikm.ds.rocks;
 
-import dev.ikm.ds.rocks.internal.Get;
 import dev.ikm.ds.rocks.maps.*;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
-import dev.ikm.tinkar.common.alert.AlertStreams;
+import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.*;
-import dev.ikm.tinkar.common.util.io.FileUtil;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.common.validation.ValidationRecord;
 import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
-import dev.ikm.tinkar.provider.search.SearchProvider;
 import dev.ikm.tinkar.provider.search.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
@@ -32,11 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -413,11 +409,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             this.dbOptions = null;
         }
     }
-    
+
+    @Override
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
         return uuidEntityKeyMap.getEntityKey(patternId, entityId);
     }
 
+    @Override
     public Optional<EntityKey> getEntityKey(UUID uuid) {
         return uuidEntityKeyMap.getEntityKey(uuid);
     }

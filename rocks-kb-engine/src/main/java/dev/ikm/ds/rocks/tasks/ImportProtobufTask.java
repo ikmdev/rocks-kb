@@ -1,10 +1,11 @@
 package dev.ikm.ds.rocks.tasks;
 
-import dev.ikm.ds.rocks.EntityKey;
-import dev.ikm.ds.rocks.NidCodec6;
 import dev.ikm.ds.rocks.RocksProvider;
+import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
+import dev.ikm.tinkar.common.service.DataActivity;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.TrackingCallable;
 import dev.ikm.tinkar.common.util.io.CountingInputStream;
@@ -161,7 +162,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
              ZipInputStream zis = new ZipInputStream(countingIn)) {
             // Consumer to be run for each transformed Entity
             Consumer<Entity<? extends EntityVersion>> entityConsumer = entity -> {
-                EntityService.get().putEntityQuietly(entity);
+                EntityService.get().putEntityNoCache(entity, DataActivity.LOADING_CHANGE_SET);
                 updateCounts(entity);
             };
 

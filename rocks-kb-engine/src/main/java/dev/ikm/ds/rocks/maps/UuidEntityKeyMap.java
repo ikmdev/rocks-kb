@@ -1,9 +1,8 @@
 package dev.ikm.ds.rocks.maps;
 
 
-import dev.ikm.ds.rocks.KeyUtil;
-import dev.ikm.ds.rocks.EntityKey;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
+import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 
 import java.util.Map;
@@ -14,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
 import org.eclipse.collections.api.list.MutableList;

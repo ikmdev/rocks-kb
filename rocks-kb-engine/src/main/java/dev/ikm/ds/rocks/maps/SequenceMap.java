@@ -1,11 +1,12 @@
 package dev.ikm.ds.rocks.maps;
 
-import dev.ikm.ds.rocks.KeyUtil;
-import dev.ikm.ds.rocks.EntityKey;
-import dev.ikm.ds.rocks.NidCodec6;
+
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
+import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -18,7 +19,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static dev.ikm.ds.rocks.NidCodec6.MAX_PATTERN_SEQUENCE;
+import static dev.ikm.tinkar.common.id.impl.NidCodec6.MAX_PATTERN_SEQUENCE;
 
 public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final Logger LOG = LoggerFactory.getLogger(SequenceMap.class);
