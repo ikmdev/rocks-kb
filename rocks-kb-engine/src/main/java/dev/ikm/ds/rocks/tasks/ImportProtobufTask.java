@@ -5,6 +5,7 @@ import dev.ikm.ds.rocks.NidCodec6;
 import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.EntityCountSummary;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.TrackingCallable;
 import dev.ikm.tinkar.common.util.io.CountingInputStream;
