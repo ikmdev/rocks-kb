@@ -25,7 +25,7 @@
         <!-- Declare all platform variants as optional -->
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
-            <artifactId>rocksdbjni-jpms</artifactId>
+            <artifactId>rocksdbjni</artifactId>
             <classifier>osx</classifier>
             <optional>true</optional>
             <exclusions>
