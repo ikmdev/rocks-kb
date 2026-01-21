@@ -41,7 +41,7 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
-            <artifactId>rocksdbjni-jpms</artifactId>
+            <artifactId>rocksdbjni</artifactId>
             <classifier>linux64</classifier>
             <optional>true</optional>
             <exclusions>
@@ -57,7 +57,7 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
-            <artifactId>rocksdbjni-jpms</artifactId>
+            <artifactId>rocksdbjni</artifactId>
             <classifier>win64</classifier>
             <optional>true</optional>
             <exclusions>
@@ -73,11 +73,11 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
-            <artifactId>jna-jpms</artifactId>
+            <artifactId>jna</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
-            <artifactId>jna-platform-jpms</artifactId>
+            <artifactId>jna-platform</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
