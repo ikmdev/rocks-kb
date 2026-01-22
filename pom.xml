@@ -26,11 +26,6 @@
     </repositories>
 
     <properties>
-        <junit-bom.version>6.0.0</junit-bom.version>
-        <rocksdbjni.version>10.4.2-r2</rocksdbjni.version>
-        <jna.version>5.18.1-r1</jna.version>
-        <tinkar.version>1.127.2-kec-jan-19-SNAPSHOT</tinkar.version>
-        <log4j.version>3.0.0-beta2</log4j.version>
         <ike-bom.version>3.0.7-kec-jan-19-SNAPSHOT</ike-bom.version>
     </properties>
 
@@ -43,59 +38,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Import JUnit BOM -->
-            <dependency>
-                <groupId>org.junit</groupId>
-                <artifactId>junit-bom</artifactId>
-                <version>${junit-bom.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- Import Log4j BOM -->
-            <dependency>
-                <groupId>org.apache.logging.log4j</groupId>
-                <artifactId>log4j-bom</artifactId>
-                <version>${log4j.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- RocksDB and JNA dependencies -->
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>rocksdbjni</artifactId>
-                <version>${rocksdbjni.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>rocksdbjni</artifactId>
-                <version>${rocksdbjni.version}</version>
-                <classifier>osx</classifier>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>rocksdbjni</artifactId>
-                <version>${rocksdbjni.version}</version>
-                <classifier>linux64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>rocksdbjni</artifactId>
-                <version>${rocksdbjni.version}</version>
-                <classifier>win64</classifier>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>jna</artifactId>
-                <version>${jna.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.jpms</groupId>
-                <artifactId>jna-platform</artifactId>
-                <version>${jna.version}</version>
-            </dependency>
-
             <!-- Tinkar dependencies -->
                 <dependency>
                     <groupId>dev.ikm.ike</groupId>
@@ -104,31 +46,6 @@
                     <type>pom</type>
                     <scope>import</scope>
                 </dependency>
-            <dependency>
-                <groupId>dev.ikm.tinkar</groupId>
-                <artifactId>entity</artifactId>
-                <version>${tinkar.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.tinkar</groupId>
-                <artifactId>collection</artifactId>
-                <version>${tinkar.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.tinkar</groupId>
-                <artifactId>search-provider</artifactId>
-                <version>${tinkar.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.tinkar</groupId>
-                <artifactId>executor-provider</artifactId>
-                <version>${tinkar.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>dev.ikm.tinkar</groupId>
-                <artifactId>entity-provider</artifactId>
-                <version>${tinkar.version}</version>
-            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

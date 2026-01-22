@@ -226,6 +226,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             startupShutdownSemaphore.release();
         }
     }
+    @Override
+    public boolean requiresMultiPassImport() {
+        return true;  // RocksDB encodes pattern sequence in NIDs
+    }
 
     private void safeCloseColumnFamilyDescriptors() {
         if (this.columnDescriptors != null) {
