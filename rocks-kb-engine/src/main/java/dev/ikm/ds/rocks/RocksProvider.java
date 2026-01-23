@@ -617,8 +617,9 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         long[] keys = longCollection.toArray();
         // Pass false to disable parallel execution (splitting)
         ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys, false);
-        this.entityMap.scanEntitiesInRange(parts.getOnly(), action);
-    }
+        for (LongSpliteratorOfPattern part : parts) {
+            this.entityMap.scanEntitiesInRange(part, action);
+        }    }
 
     @Override
     public byte[] getBytes(int nid) {
