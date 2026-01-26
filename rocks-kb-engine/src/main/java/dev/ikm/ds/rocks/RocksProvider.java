@@ -145,6 +145,11 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             Stopwatch stopwatch = new Stopwatch();
             LOG.info("Opening " + this.getClass().getSimpleName());
             File configuredRoot = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
+            boolean expectEmpty = ServiceProperties.get(ServiceKeys.DATA_STORE_EXPECT_EMPTY, Boolean.FALSE);
+            if (expectEmpty) {
+                assertEmptyDataRoot(configuredRoot);
+                ServiceProperties.set(ServiceKeys.DATA_STORE_EXPECT_EMPTY, Boolean.FALSE);
+            }
             // Ensure DATA_STORE_ROOT is set in ServiceProperties for other services (like SearchProvider)
             ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, configuredRoot);
             this.name = configuredRoot.getName();
@@ -231,6 +236,19 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
         } finally {
             startupShutdownSemaphore.release();
+        }
+    }
+
+    private static void assertEmptyDataRoot(File configuredRoot) {
+        if (!configuredRoot.exists()) {
+            return;
+        }
+        if (!configuredRoot.isDirectory()) {
+            throw new IllegalStateException("Configured DATA_STORE_ROOT is not a directory: " + configuredRoot.getAbsolutePath());
+        }
+        String[] entries = configuredRoot.list();
+        if (entries != null && entries.length > 0) {
+            throw new IllegalStateException("Expected empty DATA_STORE_ROOT but found contents: " + configuredRoot.getAbsolutePath());
         }
     }
 
@@ -437,6 +455,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public long writeSequence() {
         return writeSequence.sum();
+    }
+
+    @Override
+    public boolean requiresMultiPassImport() {
+        return true;
     }
 
     public long elementSequenceForNid(int nid) {
@@ -892,6 +915,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             super.setDataUriOption(option);
             if (option != null) {
                 ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, option.toFile());
+                ServiceProperties.set(ServiceKeys.DATA_STORE_EXPECT_EMPTY, Boolean.FALSE);
             }
         }
 
@@ -972,9 +996,9 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                                 "Directory name cannot be blank", target)};
                     } else {
                         File possibleFile = new File(rootFolder, fileName);
-                        if (possibleFile.exists()) {
+                        if (possibleFile.exists() && !isEmptyDirectory(possibleFile)) {
                             return new ValidationRecord[]{new ValidationRecord(ValidationSeverity.ERROR,
-                                    "Directory already exists", target)};
+                                    "Directory exists and is not empty", target)};
                         }
                     }
                 }
@@ -1010,6 +1034,21 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                     throw new UncheckedIOException(e);
                 }
             }
+        }
+
+        @Override
+        protected RocksProvider createProvider() throws Exception {
+            // Ensure DATA_STORE_ROOT is set before RocksProvider is constructed.
+            File rootFolder = new File(System.getProperty("user.home"), "Solor");
+            String folderName = providerProperties.get(NEW_FOLDER_PROPERTY);
+            if (folderName == null || folderName.isBlank()) {
+                throw new IllegalStateException("New folder name not set for New Rocks KB");
+            }
+            File dataDirectory = new File(rootFolder, folderName);
+            ServiceProperties.set(ServiceKeys.DATA_STORE_EXPECT_EMPTY, Boolean.TRUE);
+            assertNewDataDirectory(dataDirectory);
+            ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, dataDirectory);
+            return RocksProvider.get();
         }
 
         @Override
@@ -1069,6 +1108,28 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         @Override
         public boolean loading() {
             return loading.get();
+        }
+
+        private static void assertNewDataDirectory(File dir) {
+            if (dir.exists()) {
+                if (!dir.isDirectory()) {
+                    throw new IllegalStateException("New Rocks KB path is not a directory: " + dir.getAbsolutePath());
+                }
+                if (!isEmptyDirectory(dir)) {
+                    throw new IllegalStateException("New Rocks KB directory is not empty: " + dir.getAbsolutePath());
+                }
+            }
+        }
+
+        private static boolean isEmptyDirectory(File dir) {
+            if (!dir.exists()) {
+                return true;
+            }
+            if (!dir.isDirectory()) {
+                return false;
+            }
+            String[] entries = dir.list();
+            return entries == null || entries.length == 0;
         }
     }
 }

@@ -3,6 +3,7 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
 
@@ -46,6 +47,7 @@ public class UuidEntityKeyMap
 
     private static final ScopedValue<PublicId> ENTITY_PUBLIC_ID = ScopedValue.newInstance();
     private static final ScopedValue<EntityKey> PATTERN_ENTITY_KEY = ScopedValue.newInstance();
+    private static final ScopedValue<TraceLevel> TRACE_ALLOC = ScopedValue.newInstance();
 
     MultiUuidLockTable uuidLockTable = new MultiUuidLockTable();
 
@@ -56,6 +58,12 @@ public class UuidEntityKeyMap
     final SequenceMap sequenceMap;
 
     final ConcurrentHashMap<UUID, EntityKey> uuidEntityKeyMap = new ConcurrentHashMap<>();
+
+    private enum TraceLevel {
+        NONE,
+        INFO,
+        DEBUG
+    }
 
     public UuidEntityKeyMap(RocksDB db,
                             ColumnFamilyHandle mapHandle,
@@ -198,6 +206,7 @@ public class UuidEntityKeyMap
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
+        TraceLevel traceLevel = TraceLevel.NONE;
         if (ImportProtobufTask.SCOPED_WATCH_LIST.isBound()) {
             Set<UUID> watchList = ImportProtobufTask.SCOPED_WATCH_LIST.get();
             Set<UUID> values = patternId.asUuidList().toSet();
@@ -205,17 +214,23 @@ public class UuidEntityKeyMap
 
             if (watchList.stream().anyMatch(values::contains)) {
                 LOG.info("Watch in public id found: patternId {} and entityId {} found", patternId, entityId);
+                traceLevel = TraceLevel.INFO;
             }
         }
+        if (traceLevel == TraceLevel.NONE && LOG.isDebugEnabled()) {
+            traceLevel = TraceLevel.DEBUG;
+        }
 
-        EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId).call(() ->
+        EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId)
+                .where(TRACE_ALLOC, traceLevel).call(() ->
                 switch (patternId.uuidCount()) {
                     case 1 -> uuidEntityKeyMap.computeIfAbsent(patternId.asUuidArray()[0], this::makePatternEntityKey);
                     default -> uuidEntityKeyMap.computeIfAbsent(patternId.asUuidArray()[0], this::makeMultiUuidPatternEntityKey);
                 });
 
         return ScopedValue.where(PATTERN_ENTITY_KEY, patternKey)
-                .where(ENTITY_PUBLIC_ID, entityId).call(() ->
+                .where(ENTITY_PUBLIC_ID, entityId)
+                .where(TRACE_ALLOC, traceLevel).call(() ->
               switch (entityId.uuidCount()) {
                 case 1 -> uuidEntityKeyMap.computeIfAbsent(entityId.asUuidArray()[0], this::makeEntityKey);
                 default -> uuidEntityKeyMap.computeIfAbsent(entityId.asUuidArray()[0], this::makeMultiUuidEntityKey);
@@ -238,12 +253,16 @@ public class UuidEntityKeyMap
             if (patternKey.equals(SequenceMap.patternPatternEntityKey())) {
                 int patternSequence = PATTERN_PATTERN_SEQUENCE;
                 long patternElementSequence = this.sequenceMap.nextPatternSequence();
-                return EntityKey.of(patternSequence, patternElementSequence);
+                EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
+                traceAllocation("pattern-entity", entityKey, patternKey);
+                return entityKey;
             }
             // Regular entities: use the pattern's own sequence bucket (elementSequence allocated within that bucket).
             int patternSequence = (int) patternKey.elementSequence();
             long patternElementSequence = this.sequenceMap.nextElementSequence(patternSequence);
-            return EntityKey.of(patternSequence, patternElementSequence);
+            EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
+            traceAllocation("entity", entityKey, patternKey);
+            return entityKey;
         });
     }
 
@@ -254,6 +273,7 @@ public class UuidEntityKeyMap
                 LOG.warn("Pattern sequence 1 is reserved for the pattern entity key");
             }
             EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence);
+            traceAllocation("pattern-def", patternEntityKey, null);
             return patternEntityKey;
         });
     }
@@ -311,5 +331,38 @@ public class UuidEntityKeyMap
             }
         }
         return Optional.empty();
+    }
+
+    private void traceAllocation(String kind, EntityKey entityKey, EntityKey patternKey) {
+        if (!TRACE_ALLOC.isBound()) {
+            return;
+        }
+        TraceLevel level = TRACE_ALLOC.get();
+        if (level == TraceLevel.NONE) {
+            return;
+        }
+        PublicId entityPublicId = ENTITY_PUBLIC_ID.isBound() ? ENTITY_PUBLIC_ID.get() : null;
+        int nid = entityKey.nid();
+        int decodedPattern = NidCodec6.decodePatternSequence(nid);
+        long decodedElement = NidCodec6.decodeElementSequence(nid);
+        boolean consistent = decodedPattern == entityKey.patternSequence()
+                && decodedElement == entityKey.elementSequence();
+        String message = String.format(
+                "Allocated %s: entityPublicId=%s, patternKey=%s, entityKey=%s, nid=%d (0x%08X), decoded=(%d,%d), consistent=%s",
+                kind,
+                entityPublicId,
+                patternKey,
+                entityKey,
+                nid,
+                nid,
+                decodedPattern,
+                decodedElement,
+                consistent
+        );
+        if (level == TraceLevel.INFO) {
+            LOG.info(message);
+        } else {
+            LOG.debug(message);
+        }
     }
 }
