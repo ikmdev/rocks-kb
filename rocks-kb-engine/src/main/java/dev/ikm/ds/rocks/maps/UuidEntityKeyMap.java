@@ -1,8 +1,8 @@
 package dev.ikm.ds.rocks.maps;
 
 
-import dev.ikm.ds.rocks.KeyUtil;
-import dev.ikm.ds.rocks.EntityKey;
+import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
 

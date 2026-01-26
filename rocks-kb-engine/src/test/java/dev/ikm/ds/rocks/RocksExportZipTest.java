@@ -1,6 +1,7 @@
 package dev.ikm.ds.rocks;
 
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.service.DataUriOption;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.ServiceKeys;

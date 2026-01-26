@@ -1,11 +1,11 @@
 package dev.ikm.ds.rocks.maps;
 
-import dev.ikm.ds.rocks.KeyUtil;
-import dev.ikm.ds.rocks.EntityKey;
-import dev.ikm.ds.rocks.NidCodec6;
+import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -18,7 +18,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static dev.ikm.ds.rocks.NidCodec6.MAX_PATTERN_SEQUENCE;
+
+import static dev.ikm.tinkar.common.id.impl.NidCodec6.MAX_PATTERN_SEQUENCE;
 
 public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final Logger LOG = LoggerFactory.getLogger(SequenceMap.class);
@@ -62,7 +63,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     /**
      * Map of pattern sequences to atomic counters used to generate a unique, ordered, sequence for each new element.
      */
-    final ConcurrentHashMap<Integer, AtomicLong> nextSequenceMap = new ConcurrentHashMap<>();
+    public final ConcurrentHashMap<Integer, AtomicLong> nextSequenceMap = new ConcurrentHashMap<>();
 
     public SequenceMap(RocksDB db, ColumnFamilyHandle mapHandle) {
         super(db, mapHandle);
@@ -100,6 +101,9 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
         try (RocksIterator it = rocksIterator()) {
             it.seekToFirst();
             if (it.isValid()) {
+                LOG.info("═══════════════════════════════════════════════════════════");
+                LOG.info("SequenceMap.open() - Loading from existing RocksDB data");
+                LOG.info("═══════════════════════════════════════════════════════════");
                 // At least one entry: populate from DB.
                 for (; it.isValid(); it.next()) {
                     byte[] keyBytes = it.key();
@@ -108,11 +112,18 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                         int key = KeyUtil.byteArrayToInt(keyBytes);
                         long value = KeyUtil.byteArrayToLong(valueBytes);
                         nextSequenceMap.put(key, new AtomicLong(value));
+                        LOG.info("  Loaded: pattern={} -> nextSequence={}", key, value);
                     } else {
                         throw new IllegalStateException("key/value lengths out of bounds: " + keyBytes.length + "/" + valueBytes.length);
                     }
                 }
+                LOG.info("═══════════════════════════════════════════════════════════");
             } else {
+                LOG.info("═══════════════════════════════════════════════════════════");
+                LOG.info("SequenceMap.open() - Empty DB, initializing bootstrap state");
+                LOG.info("  Setting pattern[{}] = {} (PATTERN_PATTERN_SEQUENCE)", 
+                        PATTERN_PATTERN_SEQUENCE, nextPatternElementSequence);
+                LOG.info("═══════════════════════════════════════════════════════════");
                 // Column family is empty: do identifier bootstrap initialization.
                 nextSequenceMap.put(PATTERN_PATTERN_SEQUENCE, new AtomicLong(nextPatternElementSequence)); // Pattern pattern sequences
             }
@@ -148,8 +159,18 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
      * @return next sequence for the given pattern.
      */
     public long nextElementSequence(int patternSequence) {
-        return nextSequenceMap.computeIfAbsent(patternSequence, k -> new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN)).getAndIncrement();
+    AtomicLong counter = nextSequenceMap.computeIfAbsent(patternSequence, 
+            k -> {
+                LOG.info("Created new counter for pattern {}", patternSequence);
+                return new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN);
+            });
+    long seq = counter.getAndIncrement();
+    // Log only the first allocation and every 1000th, plus any suspiciously high values
+    if (seq == 1 || seq % 1000 == 0 || seq > 10000) {
+        LOG.info("nextElementSequence({}) = {}", patternSequence, seq);
     }
+    return seq;
+}
 
     /**
      * Generates the next pattern sequence as a long value. This method ensures that
@@ -165,7 +186,21 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     public SpliteratorForEntityKeys allEntityLongKeySpliterator() {
-        Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
+    LOG.info("=== nextSequenceMap contents ===");
+    long totalKeys = 0;
+    for (Map.Entry<Integer, AtomicLong> entry : nextSequenceMap.entrySet().stream()
+            .sorted(Map.Entry.comparingByKey()).toList()) {
+        long count = entry.getValue().get() - FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
+        LOG.info("  Pattern {} -> next sequence = {} (count = {})", 
+                entry.getKey(), entry.getValue().get(), count);
+        if (entry.getKey() != PATTERN_PATTERN_SEQUENCE) {
+            totalKeys += count;
+        }
+    }
+    LOG.info("=== Total theoretical keys: {} ===", totalKeys);
+    
+    Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
+                .filter(entry -> entry.getKey() != PATTERN_PATTERN_SEQUENCE) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get()))
                 .toList();
@@ -175,6 +210,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public ImmutableList<SpliteratorForLongKeyOfPattern> allPatternSpliterators() {
         return Lists.immutable.ofAll(
                 nextSequenceMap.entrySet().stream()
+                .filter(entry -> entry.getKey() != PATTERN_PATTERN_SEQUENCE) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get())).toList());
     }
