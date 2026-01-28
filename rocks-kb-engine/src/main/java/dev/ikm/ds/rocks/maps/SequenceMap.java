@@ -164,12 +164,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                 LOG.info("Created new counter for pattern {}", patternSequence);
                 return new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN);
             });
-    long seq = counter.getAndIncrement();
-    // Log only the first allocation and every 1000th, plus any suspiciously high values
-    if (seq == 1 || seq % 1000 == 0 || seq > 10000) {
-        LOG.info("nextElementSequence({}) = {}", patternSequence, seq);
-    }
-    return seq;
+    return counter.getAndIncrement();
 }
 
     /**
@@ -186,19 +181,6 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     public SpliteratorForEntityKeys allEntityLongKeySpliterator() {
-    LOG.info("=== nextSequenceMap contents ===");
-    long totalKeys = 0;
-    for (Map.Entry<Integer, AtomicLong> entry : nextSequenceMap.entrySet().stream()
-            .sorted(Map.Entry.comparingByKey()).toList()) {
-        long count = entry.getValue().get() - FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
-        LOG.info("  Pattern {} -> next sequence = {} (count = {})", 
-                entry.getKey(), entry.getValue().get(), count);
-        if (entry.getKey() != PATTERN_PATTERN_SEQUENCE) {
-            totalKeys += count;
-        }
-    }
-    LOG.info("=== Total theoretical keys: {} ===", totalKeys);
-    
     Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
                 .filter(entry -> entry.getKey() != PATTERN_PATTERN_SEQUENCE) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
