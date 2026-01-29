@@ -684,12 +684,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         // Delegate indexing to SearchProvider
         try {
-            SearchService searchService = PluggableService.first(SearchService.class);
+            SearchService searchService = getSearchService();
             searchService.index(sourceObject);
         } catch (Exception e) {
-            // SearchService not available during DATA_STORAGE/ENTITIES/early phases
-            // This is expected - SearchProvider will rebuild the index after data loading completes
-            LOG.trace("SearchService not available for real-time indexing (expected during startup)", e);
+            // SearchService may not be available yet during startup; log at debug with the entity info.
+            LOG.debug("SearchService not available for real-time indexing; will rely on later index rebuild. Entity={}", sourceObject, e);
         }
 
         return mergedBytes;
