@@ -63,6 +63,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     final StableValue<ImmutableList<ChangeSetWriterService>> changeSetWriterServices = StableValue.of();
     final StableValue<SearchService> searchService = StableValue.of();
+    private volatile boolean loadPhase = false;
 
     private final RocksDB db;
     private final EntityMap entityMap;
@@ -682,13 +683,16 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         ImmutableList<ChangeSetWriterService> changeSetWriterServices = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
         changeSetWriterServices.forEach(writerService -> writerService.writeToChangeSet((Entity) sourceObject, activity));
 
-        // Delegate indexing to SearchProvider
-        try {
-            SearchService searchService = getSearchService();
-            searchService.index(sourceObject);
-        } catch (Exception e) {
-            // SearchService may not be available yet during startup; log at debug with the entity info.
-            LOG.debug("SearchService not available for real-time indexing; will rely on later index rebuild. Entity={}", sourceObject, e);
+        // Delegate indexing to SearchProvider.
+        // Skip during load phase (import) — RecreateIndex will build the index in batch afterward.
+        if (!loadPhase) {
+            try {
+                SearchService searchService = getSearchService();
+                searchService.index(sourceObject);
+            } catch (Exception e) {
+                // SearchService may not be available yet during startup; log at debug with the entity info.
+                LOG.debug("SearchService not available for real-time indexing; will rely on later index rebuild. Entity={}", sourceObject, e);
+            }
         }
 
         return mergedBytes;
@@ -714,6 +718,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         PrimitiveDataSearchResult[] results = service.search(query, maxResultSize);
         LOG.debug("RocksProvider.search() - Search returned {} results", results != null ? results.length : 0);
         return results;
+    }
+
+    @Override
+    public void setLoadPhase(boolean loadPhase) {
+        this.loadPhase = loadPhase;
     }
 
     @Override

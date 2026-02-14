@@ -36,6 +36,7 @@
         <subproject>rocks-maven-plugin</subproject>
     </subprojects>
 
+
     <dependencyManagement>
         <dependencies>
             <!-- Tinkar dependencies -->
@@ -48,4 +49,19 @@
                 </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.2.8</version>
+                    <configuration>
+                        <signer>bc</signer>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
 </project>
