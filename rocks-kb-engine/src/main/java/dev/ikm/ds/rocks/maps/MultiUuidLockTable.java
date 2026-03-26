@@ -10,8 +10,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * MultiUuidLockTable is a weak lock table that enables fine-grained, deadlock-safe, per-key locking for concurrent operations on sets of {@code long} values.
- * <p>
- * <b>Concurrency Strategy:</b> This class uses a {@link ConcurrentHashMap} that maps {@code long} keys to {@link java.lang.ref.WeakReference}s
+ * <p><b>Concurrency Strategy:</b> This class uses a {@link ConcurrentHashMap} that maps {@code long} keys to {@link java.lang.ref.WeakReference}s
  * of {@link java.util.concurrent.locks.ReentrantLock} objects. Each provided {@code long} value (possibly derived from the
  * {@code PublicId}) gets its own dynamically allocated lock object.
  * When a thread wants to perform an atomic operation on a set of long values, it:

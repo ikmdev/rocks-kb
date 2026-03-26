@@ -229,3 +229,8 @@ Temporary Items
 ###################
 **.zip
 htmlReport
+
+###################
+# Claude (unpacked build standards)
+###################
+.claude

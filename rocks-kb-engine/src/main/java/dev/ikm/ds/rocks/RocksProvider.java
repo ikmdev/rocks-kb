@@ -744,13 +744,12 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachConceptNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern(
-                (int) NidCodec6.decodeElementSequence(EntityBinding.Concept.pattern().nid()), procedure);
+        forEachSemanticNidOfPattern(EntityBinding.Concept.pattern().nid(), procedure);
     }
 
     @Override
     public void forEachStampNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern((int) NidCodec6.decodeElementSequence(EntityBinding.Stamp.pattern().nid()), procedure);
+        forEachSemanticNidOfPattern(EntityBinding.Stamp.pattern().nid(), procedure);
     }
 
     @Override
@@ -829,9 +828,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     /**
      * Base Controller for RocksProvider lifecycle management.
-     * <p>
-     * Handles heavyweight initialization including data loading and indexing.
-     * </p>
+     * <p>     * Handles heavyweight initialization including data loading and indexing.
      */
     public abstract static class Controller extends ProviderController<RocksProvider>
             implements DataServiceController<PrimitiveDataService> {

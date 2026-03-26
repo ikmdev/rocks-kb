@@ -198,10 +198,12 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     public LongSpliteratorOfPattern spliteratorOfPattern(int patternSequence) {
-        return nextSequenceMap.entrySet().stream().filter(entry -> entry.getKey() == patternSequence)
-                .map(entry -> new SpliteratorForLongKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, entry.getValue().get()))
-                .findFirst().orElseThrow(() ->
-                        new IllegalArgumentException("Pattern sequence not found: " + patternSequence));
+        AtomicLong counter = nextSequenceMap.get(patternSequence);
+        if (counter == null) {
+            // Pattern has no elements yet — return an empty spliterator
+            return new SpliteratorForLongKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, FIRST_ELEMENT_SEQUENCE_OF_PATTERN);
+        }
+        return new SpliteratorForLongKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, counter.get());
     }
 
     public LongSpliteratorOfPattern spliteratorOfPatterns() {
