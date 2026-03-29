@@ -78,16 +78,46 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
             <artifactId>entity</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>collection</artifactId>
         </dependency>
+
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>search-provider</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>terms</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>tinkar-schema</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>activej-bytebuf</artifactId>
+         </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>executor-provider</artifactId>

@@ -1,5 +1,6 @@
 package dev.ikm.ds.rocks;
 // Java
+import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

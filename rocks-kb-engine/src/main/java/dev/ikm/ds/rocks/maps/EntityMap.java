@@ -1,9 +1,10 @@
 package dev.ikm.ds.rocks.maps;
 
-import dev.ikm.ds.rocks.KeyUtil;
-import dev.ikm.ds.rocks.EntityKey;
+
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.internal.Get;
+import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.service.PrimitiveDataService;
 import io.activej.bytebuf.ByteBuf;
 import io.activej.bytebuf.ByteBufPool;

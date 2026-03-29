@@ -42,7 +42,7 @@ import java.util.function.LongConsumer;
  * <p>Per the {@link java.util.Spliterator#SORTED} contract, {@link #getComparator()} returns {@code null}
  * to indicate the natural {@code long} order.</p>
  *
- * @implNote This spliterator does not perform bounds checking beyond the constructor invariants and
+ * <b>Implementation Note:</b> This spliterator does not perform bounds checking beyond the constructor invariants and
  * assumes the provided indices are valid for {@code a}.
  */
 public final class SortedLongArraySpliteratorOfPattern implements LongSpliteratorOfPattern {
@@ -112,7 +112,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      * advances to start at {@code mid} and continues to cover {@code [mid, fence)}.</p>
      *
      * @return a new spliterator covering {@code [index, mid)} if the range can be split; otherwise {@code null}
-     * @implSpec This implementation performs a midpoint split using unsigned right shift.
+     * <b>Implementation Requirements:</b> This implementation performs a midpoint split using unsigned right shift.
      */
     @Override
     public OfLong trySplit() {
@@ -131,7 +131,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      * @param action the action to perform on the next element
      * @return {@code true} if an element was processed; {@code false} if no elements remain
      * @throws NullPointerException if the specified action is {@code null}
-     * @implSpec This implementation reads the next element from {@code a[index]} and increments the cursor.
+     * <b>Implementation Requirements:</b> This implementation reads the next element from {@code a[index]} and increments the cursor.
      */
     @Override
     public boolean tryAdvance(LongConsumer action) {
@@ -148,7 +148,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      *
      * @param action the action to perform on the remaining elements
      * @throws NullPointerException if the specified action is {@code null}
-     * @implSpec This implementation iterates sequentially from the current cursor to {@code fence}.
+     * <b>Implementation Requirements:</b> This implementation iterates sequentially from the current cursor to {@code fence}.
      */
     @Override
     public void forEachRemaining(LongConsumer action) {
@@ -160,7 +160,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      * Returns an estimate of the number of elements remaining to be traversed.
      *
      * @return the exact number of remaining elements
-     * @implSpec Since the size is known, this is an exact count {@code (fence - index)}.
+     * <b>Implementation Requirements:</b> Since the size is known, this is an exact count {@code (fence - index)}.
      */
     @Override
     public long estimateSize() {
@@ -171,7 +171,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      * Returns a set of characteristics of this spliterator and its elements.
      *
      * @return a representation of characteristics
-     * @implSpec This implementation reports {@code ORDERED | SORTED | SIZED | SUBSIZED | IMMUTABLE}.
+     * <b>Implementation Requirements:</b> This implementation reports {@code ORDERED | SORTED | SIZED | SUBSIZED | IMMUTABLE}.
      */
     @Override
     public int characteristics() {
@@ -185,7 +185,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      * in natural order.
      *
      * @return {@code null}, indicating natural order for primitive {@code long} values
-     * @implSpec Returning {@code null} complies with the {@code SORTED} contract for natural ordering.
+     * <b>Implementation Requirements:</b> Returning {@code null} complies with the {@code SORTED} contract for natural ordering.
      */
     @Override
     public Comparator<? super Long> getComparator() {

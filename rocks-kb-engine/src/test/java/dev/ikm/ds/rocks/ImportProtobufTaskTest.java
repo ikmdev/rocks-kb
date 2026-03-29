@@ -1,6 +1,7 @@
 package dev.ikm.ds.rocks;
 
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
+import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.*;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
