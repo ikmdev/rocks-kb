@@ -10,7 +10,7 @@
 
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
-    <version>0.1.0-kec-rocks-jan-25-SNAPSHOT</version>
+    <version>0.1.0-feature-ids-for-composer-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Rocks KB</name>
