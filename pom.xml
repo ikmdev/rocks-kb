@@ -27,7 +27,7 @@
     </repositories>
 
     <properties>
-        <ike-bom.version>3.0.7-SNAPSHOT</ike-bom.version>
+        <ike-bom.version>3.0.7-feature-test-v66-SNAPSHOT</ike-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
     </properties>
 
@@ -45,7 +45,7 @@
                 <dependency>
                     <groupId>dev.ikm.ike</groupId>
                     <artifactId>ike-bom</artifactId>
-                    <version>3.0.7-SNAPSHOT</version>
+                    <version>3.0.7-feature-test-v66-SNAPSHOT</version>
                     <type>pom</type>
                     <scope>import</scope>
                 </dependency>
