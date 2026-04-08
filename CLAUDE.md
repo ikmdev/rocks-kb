@@ -1,6 +1,6 @@
-# Rocks KB
+# rocks-kb
 
-RocksDB-based knowledge base storage engine for Tinkar entities.
+rocks-kb component.
 
 ## Build Standards
 
@@ -15,7 +15,16 @@ mvn clean verify -DskipTests -T4
 ## Key Facts
 
 - GroupId: `dev.ikm.ike`
-- Uses `--enable-preview` (Java 25) — set via `maven.compiler.enablePreview`
-- BOM: imports `dev.ikm.ike:ike-bom`
-- Entity encoding uses NidCodec6: 6-bit pattern sequence + 26-bit element index
-- Pattern entities stored under PATTERN_PATTERN_SEQUENCE (63); semantics stored under the pattern's element sequence
+- Version: `0.1.0-SNAPSHOT`
+- Uses `--enable-preview` (Java 25)
+- BOM: imports `dev.ikm.ike:ike-bom` for dependency version management
+
+## Prohibited Patterns
+
+- **Never use `maven-antrun-plugin`** — use a proper Maven goal or `exec-maven-plugin`
+- **Never use `build-helper-maven-plugin` for multi-execution property chaining** —
+  write a proper Maven goal in `ike-maven-plugin`
+- **Never embed shell commands inline in POM** — extract to a named script
+
+See `.claude/standards/` (after `mvn validate`) for full standards.
+See `CLAUDE-rocks-kb.md` for project-specific notes.
