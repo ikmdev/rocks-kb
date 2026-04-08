@@ -27,7 +27,7 @@
     </repositories>
 
     <properties>
-        <ike-bom.version>3.0.7-SNAPSHOT</ike-bom.version>
+        <ike-bom.version>3.0.7-feature-ike-parent-migration-SNAPSHOT</ike-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
     </properties>
 
