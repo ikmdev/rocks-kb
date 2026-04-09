@@ -11,7 +11,7 @@
 
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
-    <version>0.1.0-checkpoint.20260408.686b341</version>
+    <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Rocks KB</name>
