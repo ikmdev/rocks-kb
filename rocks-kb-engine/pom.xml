@@ -10,13 +10,6 @@
     <name>rocks-kb-engine</name>
     <description>Rocks KB engine</description>
 
-    <properties>
-        <compiler.args>--enable-preview</compiler.args>
-        <surefire.args>--enable-preview</surefire.args>
-        <failsafe.args>--enable-preview</failsafe.args>
-        <javadoc.args>--enable-preview</javadoc.args>
-    </properties>
-
     <dependencies>
         <!-- Platform-specific natives JAR -->
         <!-- Declare all platform variants as optional -->
