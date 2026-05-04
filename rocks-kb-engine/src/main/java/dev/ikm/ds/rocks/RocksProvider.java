@@ -1,24 +1,20 @@
 package dev.ikm.ds.rocks;
 
-import dev.ikm.ds.rocks.internal.Get;
 import dev.ikm.ds.rocks.maps.*;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
-import dev.ikm.tinkar.common.alert.AlertStreams;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.tinkar.common.service.*;
-import dev.ikm.tinkar.common.util.io.FileUtil;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.common.validation.ValidationRecord;
 import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
-import dev.ikm.tinkar.provider.search.SearchProvider;
-import dev.ikm.tinkar.provider.search.SearchService;
+import dev.ikm.tinkar.common.service.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
@@ -35,11 +31,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -718,6 +711,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         PrimitiveDataSearchResult[] results = service.search(query, maxResultSize);
         LOG.debug("RocksProvider.search() - Search returned {} results", results != null ? results.length : 0);
         return results;
+    }
+
+    @Override
+    public String highlight(String query, String text) throws Exception {
+        return getSearchService().highlight(query, text);
     }
 
     @Override
