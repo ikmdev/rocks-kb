@@ -5,7 +5,7 @@
  <parent>
         <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>16</version>
+        <version>55</version>
         <relativePath/>
     </parent>
 
@@ -16,6 +16,16 @@
 
     <name>Rocks KB</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
+
+    <distributionManagement>
+        <!-- Explicit <site> URL — see ike-parent/CLAUDE.md
+             ("Inheriting projects MUST declare their own
+             <distributionManagement><site>") and ike-issues#380/#383. -->
+        <site>
+            <id>ike-site</id>
+            <url>https://ike.network/${project.artifactId}/</url>
+        </site>
+    </distributionManagement>
 
     <repositories>
         <repository>
