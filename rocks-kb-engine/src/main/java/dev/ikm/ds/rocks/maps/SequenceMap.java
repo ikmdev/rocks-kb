@@ -177,6 +177,10 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public int nextPatternSequence() {
         int newPatternSequence = (int) nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).getAndIncrement();
         nextSequenceMap.put(newPatternSequence, new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN));
+        // Diagnostic for ikmdev/komet-desktop#12: this should fire on every new-pattern publish.
+        // If it doesn't, the publish path took the wrong branch in UuidEntityKeyMap.makeEntityKey.
+        LOG.info("nextPatternSequence: allocated element {} in PATTERN_PATTERN namespace (counter now {})",
+                newPatternSequence, nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).get());
         return newPatternSequence;
     }
 

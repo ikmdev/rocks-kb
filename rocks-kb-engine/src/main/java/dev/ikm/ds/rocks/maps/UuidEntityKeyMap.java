@@ -183,6 +183,39 @@ public class UuidEntityKeyMap
                 uuidEntityKeyMap.put(SequenceMap.stampPatternUUID, SequenceMap.stampPatternEntityKey());
             }
         }
+        logSystemPatternBootstrapState();
+    }
+
+    /**
+     * Diagnostic: log what EntityKey is actually present in the loaded map for each of the three
+     * system pattern UUIDs. If the stored EntityKey for PATTERN_PATTERN_UUID has an elementSequence
+     * other than the hardcoded {@link SequenceMap#patternPatternEntityKey()} value, then the check
+     * in {@link #makeEntityKey(UUID)} will misclassify newly created patterns as regular entities
+     * and allocate them in the wrong pattern bucket (see issue ikmdev/komet-desktop#12).
+     */
+    private void logSystemPatternBootstrapState() {
+        EntityKey expectedPatternPattern = SequenceMap.patternPatternEntityKey();
+        EntityKey expectedConceptPattern = SequenceMap.conceptPatternEntityKey();
+        EntityKey expectedStampPattern = SequenceMap.stampPatternEntityKey();
+        Optional<EntityKey> storedPatternPattern = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID);
+        Optional<EntityKey> storedConceptPattern = getEntityKey(SequenceMap.conceptPatternUUID);
+        Optional<EntityKey> storedStampPattern = getEntityKey(SequenceMap.stampPatternUUID);
+        LOG.info("Bootstrap check (memoryMode={}): PATTERN_PATTERN_UUID={} -> stored EntityKey={} (expected {}, match={})",
+                memoryMode.get(),
+                SequenceMap.PATTERN_PATTERN_UUID,
+                storedPatternPattern.orElse(null),
+                expectedPatternPattern,
+                storedPatternPattern.map(k -> k.equals(expectedPatternPattern)).orElse(false));
+        LOG.info("Bootstrap check: conceptPatternUUID={} -> stored EntityKey={} (expected {}, match={})",
+                SequenceMap.conceptPatternUUID,
+                storedConceptPattern.orElse(null),
+                expectedConceptPattern,
+                storedConceptPattern.map(k -> k.equals(expectedConceptPattern)).orElse(false));
+        LOG.info("Bootstrap check: stampPatternUUID={} -> stored EntityKey={} (expected {}, match={})",
+                SequenceMap.stampPatternUUID,
+                storedStampPattern.orElse(null),
+                expectedStampPattern,
+                storedStampPattern.map(k -> k.equals(expectedStampPattern)).orElse(false));
     }
 
     private void loadAllUuids() {
@@ -248,9 +281,19 @@ public class UuidEntityKeyMap
     private EntityKey makeEntityKey(UUID uuid) {
         return getEntityKey(uuid).orElseGet(() -> {
             EntityKey patternKey = PATTERN_ENTITY_KEY.get();
-            // If the enclosing pattern is the "Pattern" pattern, this is a Pattern entity.
-            // Ensure it lives under PATTERN_PATTERN_SEQUENCE, not under the pattern's own sequence (e.g., 1 -> 0x04...).
-            if (patternKey.equals(SequenceMap.patternPatternEntityKey())) {
+            // Identify "is the enclosing pattern the Pattern Pattern?" by the runtime-stored EntityKey
+            // for PATTERN_PATTERN_UUID, not by the static patternPatternEntityKey() value. The static
+            // value assumes elementSequence=1, but databases built with a different assignment store
+            // PATTERN_PATTERN_UUID at some other element sequence — and an equality check against the
+            // static value then misclassifies all new patterns as regular entities, allocating them
+            // outside the PATTERN_PATTERN namespace and making them invisible to forEachPatternNid.
+            // See ikmdev/komet-desktop#12.
+            EntityKey actualPatternPatternKey = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID)
+                    .orElse(SequenceMap.patternPatternEntityKey());
+            boolean isPatternPattern = patternKey.equals(actualPatternPatternKey);
+            LOG.info("makeEntityKey: uuid={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
+                    uuid, patternKey, actualPatternPatternKey, isPatternPattern);
+            if (isPatternPattern) {
                 int patternSequence = PATTERN_PATTERN_SEQUENCE;
                 long patternElementSequence = this.sequenceMap.nextPatternSequence();
                 EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);

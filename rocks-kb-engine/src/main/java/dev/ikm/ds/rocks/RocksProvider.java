@@ -473,16 +473,28 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public int nidForUuids(UUID... uuids) {
+        // Diagnostic for ikmdev/komet-desktop#12: shows which path produces the nid for a new pattern UUID.
+        boolean scopedBound = SCOPED_PATTERN_PUBLICID_FOR_NID.isBound();
+        LOG.info("nidForUuids: uuids={}, scopedPatternBound={}, scopedPatternPublicId={}",
+                Arrays.toString(uuids),
+                scopedBound,
+                scopedBound ? SCOPED_PATTERN_PUBLICID_FOR_NID.get() : null);
         for (UUID uuid: uuids) {
             Optional<EntityKey> optionalKey = uuidEntityKeyMap.getEntityKey(uuid);
             if (optionalKey.isPresent()) {
-                return optionalKey.get().nid();
+                int nid = optionalKey.get().nid();
+                LOG.info("nidForUuids: existing match for uuid={} -> nid={} (patternSeq={}, elementSeq={})",
+                        uuid, nid, NidCodec6.decodePatternSequence(nid), NidCodec6.decodeElementSequence(nid));
+                return nid;
             }
         }
         if (SCOPED_PATTERN_PUBLICID_FOR_NID.isBound()) {
             PublicId patternPublicId = SCOPED_PATTERN_PUBLICID_FOR_NID.get();
             EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
-            return stampEntityKey.nid();
+            int nid = stampEntityKey.nid();
+            LOG.info("nidForUuids: allocated via scoped pattern {} -> nid={} (patternSeq={}, elementSeq={})",
+                    patternPublicId, nid, NidCodec6.decodePatternSequence(nid), NidCodec6.decodeElementSequence(nid));
+            return nid;
         }
 
         // Log detailed information before throwing exception
@@ -743,7 +755,17 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachPatternNid(IntProcedure procedure) {
-        sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> procedure.accept(NidCodec6.nidForLongKey(longKey)));
+        // Diagnostic for ikmdev/komet-desktop#12: shows exactly what the pattern navigator's reload sees.
+        long counterValue = sequenceMap.nextSequenceMap.get(dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE).get();
+        java.util.concurrent.atomic.AtomicInteger visitedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        LOG.info("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
+                dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE, counterValue);
+        sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> {
+            int nid = NidCodec6.nidForLongKey(longKey);
+            visitedCount.incrementAndGet();
+            procedure.accept(nid);
+        });
+        LOG.info("forEachPatternNid: visited {} pattern nid(s)", visitedCount.get());
     }
 
     @Override
