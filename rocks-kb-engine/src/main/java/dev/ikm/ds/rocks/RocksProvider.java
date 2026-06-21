@@ -10,6 +10,7 @@ import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.id.impl.NidCodec6;
 import dev.ikm.tinkar.common.service.*;
+import dev.ikm.tinkar.provider.search.DataStoreLockProbe;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.common.validation.ValidationRecord;
 import dev.ikm.tinkar.common.validation.ValidationSeverity;
@@ -892,6 +893,12 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         @Override
         public Optional<ServiceExclusionGroup> getMutualExclusionGroup() {
             return Optional.of(ServiceExclusionGroup.DATA_PROVIDER);
+        }
+
+        @Override
+        public Optional<String> openConflict(DataUriOption option) {
+            return option == null ? Optional.empty()
+                    : DataStoreLockProbe.openConflict(option.toFile());
         }
 
         // ========== DataServiceController Implementation ==========
