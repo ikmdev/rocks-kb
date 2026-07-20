@@ -1,6 +1,6 @@
 # rocks-kb
 
-rocks-kb component.
+rocks-kb subproject.
 
 ## Build Standards
 
