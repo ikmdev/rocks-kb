@@ -12,7 +12,9 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>17</maven.compiler.release>
+        <!-- Java level inherited: this repository builds with preview
+             features enabled, which javadoc accepts only at the
+             project's own release level (IKE-Network/ike-issues#1011). -->
     </properties>
 
     <dependencies>
