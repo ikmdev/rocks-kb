@@ -37,7 +37,7 @@
     </repositories>
 
     <properties>
-        <komet-bom.version>3.0.8</komet-bom.version>
+        <komet-bom.version>3.0.9-SNAPSHOT</komet-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
     </properties>
 
@@ -55,7 +55,7 @@
                 <dependency>
                     <groupId>dev.ikm.komet</groupId>
                     <artifactId>komet-bom</artifactId>
-                    <version>3.0.8</version>
+                    <version>3.0.9-SNAPSHOT</version>
                     <type>pom</type>
                     <scope>import</scope>
                 </dependency>
