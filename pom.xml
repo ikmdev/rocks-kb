@@ -11,7 +11,7 @@
 
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
-    <version>0.1.5-SNAPSHOT</version>
+    <version>0.1.5-incremental-reasoner-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Rocks KB</name>
