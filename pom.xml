@@ -37,7 +37,7 @@
     </repositories>
 
     <properties>
-        <komet-bom.version>3.0.11</komet-bom.version>
+        <komet-bom.version>3.0.12-incremental-reasoner-SNAPSHOT</komet-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
     </properties>
 
