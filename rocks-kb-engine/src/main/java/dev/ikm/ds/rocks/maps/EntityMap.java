@@ -38,20 +38,25 @@ public class EntityMap
 
     private final UuidEntityKeyMap uuidEntityKeyMap;
 
-    private final AtomicLong writeSequence = new AtomicLong(0);
-    final AtomicLong lastFlushedSequence = new AtomicLong();
+    // Flush accounting: enqueuedCount is incremented by producers immediately before a
+    // record enters pendingWrites (nothing throwable in between, so a count always has a
+    // record behind it); flushedCount is incremented only by the single writer thread
+    // after a batch commits. Both are monotonic, so a flush wait can never be wedged by
+    // out-of-order batches or a put() that failed validation (ike-issues#1058, #1059).
+    private final AtomicLong enqueuedCount = new AtomicLong(0);
+    final AtomicLong flushedCount = new AtomicLong(0);
     final ReentrantLock flushLock = new ReentrantLock();
     final Condition flushed = flushLock.newCondition();
     // running flag to control writer lifecycle
     private final AtomicBoolean running = new AtomicBoolean(true);
 
-    private record WriteRecord(long writeSequence, long key, ImmutableList<ImmutableByteList> entityParts) {}
+    private record WriteRecord(long key, ImmutableList<ImmutableByteList> entityParts) {}
 
     private final ConcurrentHashMap<Long, WriteRecord> pendingWritesMap = new ConcurrentHashMap<>();
 
     private final LinkedBlockingDeque<WriteRecord> pendingWrites = new LinkedBlockingDeque<>();
 
-    private final Thread writeThread = new Thread(() -> {
+    final Thread writeThread = new Thread(() -> {
         // Drain remaining writes even after running=false
         while (running.get() || !pendingWritesMap.isEmpty()) {
             WriteRecord firstRecord = null;
@@ -75,72 +80,64 @@ public class EntityMap
 
                 // Initialize list with the item we already retrieved
                 MutableList<WriteRecord> writeRecords = Lists.mutable.with(firstRecord);
-                long maxSeqInThisBatch = firstRecord.writeSequence;
 
                 // Add the first record immediately
                 addToBatch(batch, firstRecord);
 
                 int batchCount = 1;
-                boolean interrupted = false;
 
                 // Batch up additional records if immediately available
                 // We don't need to wait (poll with timeout) here; we want to batch what's ready
-                while (batchCount++ < 16384 && !interrupted) {
+                while (batchCount++ < 16384) {
+                    WriteRecord writeRecord = pendingWrites.poll(); // Non-blocking poll for subsequent items
+                    if (writeRecord == null) {
+                        break;
+                    }
+                    addToBatch(batch, writeRecord);
+                    writeRecords.add(writeRecord);
+                }
+
+                long backoffMillis = 1;
+                final int maxAttempts = 8;
+
+                for (int attempt = 0; attempt <= maxAttempts; attempt++) {
                     try {
-                        WriteRecord writeRecord = pendingWrites.poll(); // Non-blocking poll for subsequent items
-                        if (writeRecord == null) {
-                            break;
-                        }
-                        maxSeqInThisBatch = Math.max(maxSeqInThisBatch, writeRecord.writeSequence);
-                        addToBatch(batch, writeRecord);
-                        writeRecords.add(writeRecord);
+                        db.write(writeOptions, batch);
+                        break; // Success, exit loop
                     } catch (RocksDBException e) {
-                        throw new RuntimeException(e);
+                        org.rocksdb.Status st = e.getStatus();
+                        boolean retryable = st != null &&
+                                (st.getCode() == org.rocksdb.Status.Code.Busy ||
+                                 st.getCode() == org.rocksdb.Status.Code.Incomplete);
+
+                        // If this was the last attempt, or error is not retryable, fail hard
+                        if (!retryable || attempt == maxAttempts) {
+                            throw e;
+                        }
+
+                        try {
+                            Thread.sleep(backoffMillis);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            // If interrupted during backoff, abort operations
+                            throw new RuntimeException("Write thread interrupted during retry", ie);
+                        }
+                        backoffMillis = Math.min(200, backoffMillis * 2);
                     }
                 }
 
-                if (!writeRecords.isEmpty()) {
-                    long backoffMillis = 1;
-                    final int maxAttempts = 8;
-                    
-                    // Refactored: Explicit loop instead of while(true)
-                    for (int attempt = 0; attempt <= maxAttempts; attempt++) {
-                        try {
-                            db.write(writeOptions, batch);
-                            break; // Success, exit loop
-                        } catch (RocksDBException e) {
-                            org.rocksdb.Status st = e.getStatus();
-                            boolean retryable = st != null &&
-                                    (st.getCode() == org.rocksdb.Status.Code.Busy ||
-                                     st.getCode() == org.rocksdb.Status.Code.Incomplete);
+                // A record superseded by a later merge fails this conditional remove;
+                // the superseding record is itself queued and clears the entry when it lands.
+                for (WriteRecord writeRecord : writeRecords) {
+                    pendingWritesMap.remove(writeRecord.key, writeRecord);
+                }
 
-                            // If this was the last attempt, or error is not retryable, fail hard
-                            if (!retryable || attempt == maxAttempts) {
-                                throw e;
-                            }
-
-                            try {
-                                Thread.sleep(backoffMillis);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                // If interrupted during backoff, abort operations
-                                throw new RuntimeException("Write thread interrupted during retry", ie);
-                            }
-                            backoffMillis = Math.min(200, backoffMillis * 2);
-                        }
-                    }
-
-                    lastFlushedSequence.set(maxSeqInThisBatch);
-                    flushLock.lock();
-                    try {
-                        flushed.signalAll();
-                    } finally {
-                        flushLock.unlock();
-                    }
-
-                    for (WriteRecord writeRecord : writeRecords) {
-                        pendingWritesMap.remove(writeRecord.key, writeRecord);
-                    }
+                flushedCount.addAndGet(writeRecords.size());
+                flushLock.lock();
+                try {
+                    flushed.signalAll();
+                } finally {
+                    flushLock.unlock();
                 }
             } catch (RocksDBException e) {
                 LOG.error("Failed to write batch to RocksDB", e);
@@ -169,7 +166,9 @@ public class EntityMap
         writeThread.start();
     }
 
-    // Gracefully stop the writer and flush pending data (call this before closing DB)
+    /**
+     * Gracefully stops the writer and flushes pending data. Call this before closing the DB.
+     */
     public final void closeMap() {
         // First, ensure all pending writes are flushed while the writer is still running
         writeMemoryToDb();
@@ -180,20 +179,27 @@ public class EntityMap
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        if (writeThread.isAlive()) {
+            LOG.warn("EntityMap-Writer did not exit within 30 s of shutdown");
+        }
     }
 
+    /**
+     * Waits until every record handed to the writer before this call has been written
+     * to RocksDB, bounded by a two-minute deadline. Records enqueued by puts that are
+     * still in flight when this method starts are not covered by the wait.
+     */
     @Override
     protected void writeMemoryToDb() {
-        // Wait until all queued writes have been flushed (bounded wait)
-        long target = writeSequence.get();
+        long target = enqueuedCount.get();
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(120); // 2m bound; adjust as needed
         flushLock.lock();
         try {
-            while (lastFlushedSequence.get() < target) {
+            while (flushedCount.get() < target) {
                 long remainingNanos = deadline - System.nanoTime();
                 if (remainingNanos <= 0) {
-                    LOG.warn("Timed out waiting for flush. lastFlushed={} target={}",
-                            lastFlushedSequence.get(), target);
+                    LOG.warn("Timed out waiting for flush. flushed={} target={}",
+                            flushedCount.get(), target);
                     break;
                 }
                 try {
@@ -311,30 +317,50 @@ public class EntityMap
         put(entityKey.longKey(), value);
     }
 
+    /**
+     * Accumulates the entity's version parts into the pending record for {@code longKey}
+     * and hands the result to the writer thread.
+     *
+     * @param longKey the entity's long key
+     * @param value   the serialized entity chronology; its version parts are merged with
+     *                any parts already pending for the key
+     * @throws IllegalStateException if the chronicle part of {@code value} differs from
+     *                               the chronicle part already pending for the key
+     */
     public void put(long longKey, byte[] value) {
-        // a possibly empty existing part list. 
+        // a possibly empty existing part list.
         ImmutableList<ImmutableByteList> newParts = extractVersionParts(value).toImmutable();
-        WriteRecord writeRecord = new WriteRecord(writeSequence.incrementAndGet(), longKey, newParts);
+        WriteRecord newRecord = new WriteRecord(longKey, newParts);
 
-        pendingWritesMap.merge(longKey, writeRecord, (oldRecord, newRecord) -> {
-            if (!newRecord.entityParts.get(0).equals(oldRecord.entityParts.get(0))) {
+        // Captures the record an unchanged merge left in place, so the enqueue decision
+        // below can tell it apart from a merged superset (ike-issues#1060).
+        WriteRecord[] unchangedRecord = new WriteRecord[1];
+
+        WriteRecord recordToWrite = pendingWritesMap.merge(longKey, newRecord, (oldRecord, incomingRecord) -> {
+            if (!incomingRecord.entityParts.get(0).equals(oldRecord.entityParts.get(0))) {
                 throw new IllegalStateException("Entity parts[0] must be the same for the same longKey.");
             }
             MutableList<ImmutableByteList> mergedParts = oldRecord.entityParts.toList();
-            for (int i = 1; i < newRecord.entityParts.size(); i++) {
-                if (!mergedParts.contains(newRecord.entityParts.get(i))) {
-                    mergedParts.add(newRecord.entityParts.get(i));
+            for (int i = 1; i < incomingRecord.entityParts.size(); i++) {
+                if (!mergedParts.contains(incomingRecord.entityParts.get(i))) {
+                    mergedParts.add(incomingRecord.entityParts.get(i));
                 }
             }
             boolean changed = mergedParts.size() != oldRecord.entityParts.size();
             if (changed) {
-                WriteRecord mergedWriteRecord = new WriteRecord(writeSequence.incrementAndGet(), longKey, mergedParts.toImmutable());
-                pendingWrites.add(mergedWriteRecord);
-                return mergedWriteRecord;
+                return new WriteRecord(longKey, mergedParts.toImmutable());
             }
+            unchangedRecord[0] = oldRecord;
             return oldRecord;
         });
-        pendingWrites.add(writeRecord);
+
+        if (recordToWrite != unchangedRecord[0]) {
+            // Fresh insert or merged superset: queue exactly the record the map now holds.
+            // An unchanged merge queues nothing — the record already holding the key was
+            // queued when it became the map value.
+            enqueuedCount.incrementAndGet();
+            pendingWrites.add(recordToWrite);
+        }
     }
 
     private static byte[] makeKey(long longKey, boolean isStamp, int partIndex, ImmutableList<ImmutableByteList> chronologyParts) {
