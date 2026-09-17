@@ -17,6 +17,13 @@
     <name>Rocks KB</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
 
+    <scm>
+        <connection>scm:git:https://github.com/ikmdev/rocks-kb.git</connection>
+        <developerConnection>scm:git:git@github.com:ikmdev/rocks-kb.git</developerConnection>
+        <url>https://github.com/ikmdev/rocks-kb</url>
+        <tag>HEAD</tag>
+    </scm>
+
     <distributionManagement>
         <!-- Explicit <site> URL — see ike-parent/CLAUDE.md
              ("Inheriting projects MUST declare their own
