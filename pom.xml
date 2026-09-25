@@ -44,7 +44,7 @@
     </repositories>
 
     <properties>
-        <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
+        <komet-bom.version>3.0.12-8bp-jdk27-SNAPSHOT</komet-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
     </properties>
 
