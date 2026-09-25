@@ -5,7 +5,8 @@ import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
-import dev.ikm.tinkar.common.id.impl.NidCodec6;
+import dev.ikm.tinkar.common.id.impl.NidCodec8;
+import dev.ikm.tinkar.common.service.IncompatibleNidLayoutException;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -19,8 +20,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 
-import static dev.ikm.tinkar.common.id.impl.NidCodec6.MAX_PATTERN_SEQUENCE;
-
 public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final Logger LOG = LoggerFactory.getLogger(SequenceMap.class);
 
@@ -31,11 +30,11 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
 
     /**
-     * Pattern sequence for all patterns.
-     * - In two’s complement, -1 is all 1s. As a 16-bit value: 0xFFFF.
-     * - The maximum 16-bit unsigned integer is also 0xFFFF, which equals 65535.
+     * Pattern sequence under which every pattern is keyed (the pattern-of-patterns).
+     * Its counter also issues the pattern sequences of ordinary patterns. Its
+     * presence in the counter table identifies an 8-bit database (ike-issues#1138).
      */
-    public static final int PATTERN_PATTERN_SEQUENCE = MAX_PATTERN_SEQUENCE;
+    public static final int PATTERN_PATTERN_SEQUENCE = NidCodec8.PATTERN_PATTERN_SEQUENCE;
 
     public static final EntityKey PATTERN_PATTERN_ENTITY_KEY = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternPatternElementSequence);
     public static EntityKey patternPatternEntityKey() {
@@ -78,7 +77,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
 
         for (Map.Entry<Integer, AtomicLong> entry : nextSequenceMap.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
             EntityKey patternKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, entry.getKey());
-            int patternNid = NidCodec6.encode(patternKey.patternSequence(), patternKey.elementSequence());
+            int patternNid = NidCodec8.encode(patternKey.patternSequence(), patternKey.elementSequence());
             String patternName = PrimitiveData.textWithNid(patternNid);
             sequenceReport.append(String.format("%,d=%,d, ", entry.getKey(), entry.getValue().get()));
             sequenceReport.append(String.format(
@@ -96,6 +95,10 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
 
     /**
      * Open the nextSequenceMap from RocksDB.
+     *
+     * @throws IncompatibleNidLayoutException if the database holds counters but
+     *         none at {@link #PATTERN_PATTERN_SEQUENCE} — a database written with
+     *         the 6-bit nid layout, which this build cannot read
      */
     public void open() {
         try (RocksIterator it = rocksIterator()) {
@@ -118,6 +121,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                     }
                 }
                 LOG.info("═══════════════════════════════════════════════════════════");
+                checkNidLayout(db.getName(), nextSequenceMap.keySet());
             } else {
                 LOG.info("═══════════════════════════════════════════════════════════");
                 LOG.info("SequenceMap.open() - Empty DB, initializing bootstrap state");
@@ -127,6 +131,30 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                 // Column family is empty: do identifier bootstrap initialization.
                 nextSequenceMap.put(PATTERN_PATTERN_SEQUENCE, new AtomicLong(nextPatternElementSequence)); // Pattern pattern sequences
             }
+        }
+    }
+
+    /**
+     * Refuse a database written with the 6-bit nid layout (ike-issues#1138).
+     *
+     * <p>The 6-bit layout cannot produce pattern sequence
+     * {@link #PATTERN_PATTERN_SEQUENCE}, and the 8-bit layout writes its counter
+     * when the database is created, so a non-empty counter table without it is
+     * a 6-bit database. Its entity bytes hold 6-bit nids, which the 8-bit codec
+     * would silently decode to the wrong entities.
+     *
+     * @param dataStorePath    the database location, for the refusal message
+     * @param patternSequences the pattern sequences that have counters
+     * @throws IncompatibleNidLayoutException if the database uses the 6-bit layout
+     */
+    static void checkNidLayout(String dataStorePath, Set<Integer> patternSequences) {
+        if (!patternSequences.isEmpty() && !patternSequences.contains(PATTERN_PATTERN_SEQUENCE)) {
+            throw new IncompatibleNidLayoutException(dataStorePath,
+                    "This RocksDB knowledge base uses the 6-bit nid layout (at most 63 patterns); "
+                    + "this build uses the 8-bit layout (up to 255 patterns) and cannot read it. "
+                    + "Export it to protobuf with a 6-bit build, then import the export with this build. "
+                    + "(No counter for pattern-of-patterns sequence " + PATTERN_PATTERN_SEQUENCE
+                    + "; counters found for " + new TreeSet<>(patternSequences) + ".)");
         }
     }
 
@@ -173,9 +201,21 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
      * pattern group using a map with atomic counters to provide thread-safe increments.
      *
      * @return the next pattern sequence value starting from 1.
+     * @throws IllegalStateException if every assignable pattern sequence
+     *         (1..{@value NidCodec8#MAX_ASSIGNABLE_PATTERN_SEQUENCE}) is taken
      */
     public int nextPatternSequence() {
-        int newPatternSequence = (int) nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).getAndIncrement();
+        AtomicLong patternCounter = nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE);
+        // Never hand out the pattern-of-patterns' own sequence: the counter stops,
+        // it does not wrap into it (ike-issues#1138).
+        long candidate = patternCounter.getAndUpdate(
+                next -> next > NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE ? next : next + 1);
+        if (candidate > NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE) {
+            throw new IllegalStateException("Pattern limit reached: all "
+                    + NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE
+                    + " assignable pattern sequences are in use; no new pattern can be created.");
+        }
+        int newPatternSequence = (int) candidate;
         nextSequenceMap.put(newPatternSequence, new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN));
         // Diagnostic for ikmdev/komet-desktop#12: this should fire on every new-pattern publish.
         // If it doesn't, the publish path took the wrong branch in UuidEntityKeyMap.makeEntityKey.

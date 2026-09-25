@@ -3,7 +3,7 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
-import dev.ikm.tinkar.common.id.impl.NidCodec6;
+import dev.ikm.tinkar.common.id.impl.NidCodec8;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
 
@@ -386,8 +386,8 @@ public class UuidEntityKeyMap
         }
         PublicId entityPublicId = ENTITY_PUBLIC_ID.isBound() ? ENTITY_PUBLIC_ID.get() : null;
         int nid = entityKey.nid();
-        int decodedPattern = NidCodec6.decodePatternSequence(nid);
-        long decodedElement = NidCodec6.decodeElementSequence(nid);
+        int decodedPattern = NidCodec8.decodePatternSequence(nid);
+        long decodedElement = NidCodec8.decodeElementSequence(nid);
         boolean consistent = decodedPattern == entityKey.patternSequence()
                 && decodedElement == entityKey.elementSequence();
         String message = String.format(
