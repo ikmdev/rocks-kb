@@ -552,7 +552,9 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public boolean hasUuid(UUID uuid) {
-        return this.uuidEntityKeyMap.keyExists(KeyUtil.uuidToByteArray(uuid));
+        // Memory first, then the column in caching mode: a UUID assigned this session is
+        // not in the column until the next flush (IKE-Network/ike-issues#1141).
+        return this.uuidEntityKeyMap.getEntityKey(uuid).isPresent();
     }
 
     @Override
