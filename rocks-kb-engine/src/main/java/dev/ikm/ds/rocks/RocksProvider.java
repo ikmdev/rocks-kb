@@ -1,5 +1,8 @@
 package dev.ikm.ds.rocks;
 
+import dev.ikm.tinkar.common.util.thread.StructuredScopes;
+import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
+import dev.ikm.tinkar.common.util.SetOnce;
 import dev.ikm.ds.rocks.maps.*;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
@@ -55,8 +58,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     final Semaphore startupShutdownSemaphore = new Semaphore(1);
     final String name;
 
-    final StableValue<ImmutableList<ChangeSetWriterService>> changeSetWriterServices = StableValue.of();
-    final StableValue<SearchService> searchService = StableValue.of();
+    final SetOnce<ImmutableList<ChangeSetWriterService>> changeSetWriterServices = new SetOnce<>();
+    final SetOnce<SearchService> searchService = new SetOnce<>();
     private volatile boolean loadPhase = false;
 
     private final RocksDB db;
@@ -123,7 +126,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             throw new RuntimeException(e);
         }
     }
-    private static final StableValue<RocksProvider> stableProvider = StableValue.of();
+    private static final SetOnce<RocksProvider> stableProvider = new SetOnce<>();
 
     private final Cache blockCache;
     private final AtomicBoolean closing = new AtomicBoolean(false);
@@ -618,7 +621,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         LOG.info("Found {} EntityKey ranges to process.", ranges.size());
 
         // 2) Run each range in parallel with structured concurrency
-        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             for (SpliteratorForLongKeyOfPattern range : ranges) {
                 scope.fork(() -> {
                     this.entityMap.scanEntitiesInRange((LongSpliteratorOfPattern) range, action);
@@ -665,7 +668,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             }
         }
 
-        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             for (LongSpliteratorOfPattern part : subSpliterators) {
                 scope.fork(() -> {
                     this.entityMap.scanEntitiesInRange(part, action);
@@ -860,7 +863,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         LOG.info("Split into {} sub-tasks for parallel processing", subSpliterators.size());
 
         // Process chunks in parallel using structured concurrency
-        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             for (Spliterator.OfLong subSpliterator : subSpliterators) {
                 scope.fork(() -> {
                     subSpliterator.forEachRemaining((LongConsumer) longKey ->

@@ -1,5 +1,7 @@
 package dev.ikm.ds.rocks.tasks;
 
+import dev.ikm.tinkar.common.util.thread.StructuredScopes;
+import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.RocksProvider;
@@ -102,7 +104,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
                 if (!zipEntry.getName().equals(MANIFEST_RELPATH)) {
                     Semaphore permits = new Semaphore(Runtime.getRuntime().availableProcessors() * 8);
 
-                    try (StructuredTaskScope scope = StructuredTaskScope.open()) {
+                    try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
                         while (zis.available() > 0) {
                             // zis.available returns 1 until AFTER EOF has been reached 
                             TinkarMsg pbTinkarMsg = TinkarMsg.parseDelimitedFrom(zis);
@@ -173,7 +175,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
                 if (zipEntry.getName().equals(MANIFEST_RELPATH)) {
                     continue;
                 }
-                try (StructuredTaskScope scope = StructuredTaskScope.open()) {
+                try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
                     Semaphore permits = new Semaphore(Runtime.getRuntime().availableProcessors() * 8);
                     while (zis.available() > 0) {
                         // zis.available returns 1 until AFTER EOF has been reached
