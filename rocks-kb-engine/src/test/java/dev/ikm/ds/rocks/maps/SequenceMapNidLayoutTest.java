@@ -1,8 +1,7 @@
 package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
-import dev.ikm.tinkar.common.id.impl.NidCodec8;
-import dev.ikm.tinkar.common.service.IncompatibleNidLayoutException;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,17 +21,19 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Exercises {@link SequenceMap}'s nid-layout detection and pattern-sequence
- * allocation limit against a real RocksDB instance (IKE-Network/ike-issues#1138).
+ * Exercises {@link SequenceMap}'s nid-layout detection and per-layout
+ * pattern-sequence allocation against a real RocksDB instance
+ * (IKE-Network/ike-issues#1138).
  */
 class SequenceMapNidLayoutTest {
 
-    /** Pattern-of-patterns sequence under the 6-bit layout. */
     private static final int SIX_BIT_PATTERN_PATTERN_SEQUENCE = 63;
+    private static final int EIGHT_BIT_PATTERN_PATTERN_SEQUENCE = 255;
 
     @TempDir
     Path tempDir;
@@ -60,6 +61,8 @@ class SequenceMapNidLayoutTest {
         }
         db.close();
         dbOptions.close();
+        // The layout is process-wide; leave it at the default for other tests.
+        NidLayout.activate(NidLayout.EIGHT_BIT);
     }
 
     private ColumnFamilyHandle defaultHandle() {
@@ -84,29 +87,33 @@ class SequenceMapNidLayoutTest {
     }
 
     @Test
-    void emptyDatabase_bootstrapsThePatternPatternCounterAt255() {
+    void newDatabase_isEightBit_withThePatternPatternCounterAt255() {
+        NidLayout.activate(NidLayout.SIX_BIT); // a previous database's layout must not leak in
+
         SequenceMap sequenceMap = new SequenceMap(db, defaultHandle());
 
-        assertEquals(255, SequenceMap.PATTERN_PATTERN_SEQUENCE);
-        assertTrue(sequenceMap.nextSequenceMap.containsKey(NidCodec8.PATTERN_PATTERN_SEQUENCE));
-
+        assertEquals(NidLayout.EIGHT_BIT, NidLayout.active());
+        assertEquals(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE, SequenceMap.patternPatternSequence());
         sequenceMap.save();
-        assertTrue(readCounters().containsKey(NidCodec8.PATTERN_PATTERN_SEQUENCE),
+        assertTrue(readCounters().containsKey(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE),
                 "the persisted counter table identifies the database as 8-bit");
     }
 
     @Test
-    void savedEightBitDatabase_reopens() {
+    void savedEightBitDatabase_reopensAsEightBit() {
         SequenceMap created = new SequenceMap(db, defaultHandle());
         int patternSequence = created.nextPatternSequence();
         created.save();
 
+        NidLayout.activate(NidLayout.SIX_BIT);
         SequenceMap reopened = new SequenceMap(db, defaultHandle());
+
+        assertEquals(NidLayout.EIGHT_BIT, NidLayout.active());
         assertTrue(reopened.nextSequenceMap.containsKey(patternSequence));
     }
 
     @Test
-    void sixBitDatabase_isRefusedAndLeftUnmodified() throws RocksDBException {
+    void sixBitDatabase_opensInSixBitMode_andItsCountersAreKept() throws RocksDBException {
         Map<Integer, Long> sixBit = new TreeMap<>(Map.of(
                 1, 16L,
                 2, 519_122L,
@@ -114,52 +121,57 @@ class SequenceMapNidLayoutTest {
                 SIX_BIT_PATTERN_PATTERN_SEQUENCE, 16L));
         writeCounters(sixBit);
 
-        IncompatibleNidLayoutException refused = assertThrows(IncompatibleNidLayoutException.class,
-                () -> new SequenceMap(db, defaultHandle()));
+        SequenceMap sequenceMap = new SequenceMap(db, defaultHandle());
 
-        assertTrue(refused.getMessage().contains("6-bit"), refused.getMessage());
-        assertTrue(refused.getMessage().contains("Export"), refused.getMessage());
-        assertEquals(db.getName(), refused.dataStorePath());
-        assertTrue(dev.ikm.tinkar.common.service.NonRetryableStartupFailure.class.isInstance(refused),
-                "a refusal is terminal, not retried");
-        assertEquals(sixBit, readCounters(), "a refused database is not written to");
+        assertEquals(NidLayout.SIX_BIT, NidLayout.active());
+        assertEquals(SIX_BIT_PATTERN_PATTERN_SEQUENCE, SequenceMap.patternPatternSequence());
+        assertEquals(SIX_BIT_PATTERN_PATTERN_SEQUENCE, SequenceMap.patternPatternEntityKey().patternSequence());
+        assertFalse(sequenceMap.nextSequenceMap.containsKey(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE),
+                "opening a 6-bit database never adds an 8-bit counter");
+        assertEquals(sixBit, readCounters(), "opening does not write");
+
+        sequenceMap.save();
+        assertEquals(sixBit, readCounters(),
+                "saving a 6-bit database keeps it 6-bit — it still reopens in 6-bit mode");
     }
 
     @Test
-    void eightBitDatabase_withAnOrdinaryPatternAt63_opens() throws RocksDBException {
-        // Under the 8-bit layout 63 is an ordinary pattern sequence, so its
-        // presence alone must not read as a 6-bit database.
+    void eightBitDatabase_withAnOrdinaryPatternAt63_isEightBit() throws RocksDBException {
         writeCounters(Map.of(
                 SIX_BIT_PATTERN_PATTERN_SEQUENCE, 5L,
-                NidCodec8.PATTERN_PATTERN_SEQUENCE, 70L));
+                EIGHT_BIT_PATTERN_PATTERN_SEQUENCE, 70L));
 
         SequenceMap sequenceMap = new SequenceMap(db, defaultHandle());
 
-        assertEquals(70L, sequenceMap.nextSequenceMap.get(NidCodec8.PATTERN_PATTERN_SEQUENCE).get());
+        assertEquals(NidLayout.EIGHT_BIT, NidLayout.active());
+        assertEquals(70L, sequenceMap.nextSequenceMap.get(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE).get());
     }
 
     @Test
-    void checkNidLayout_acceptsEmptyAndEightBit_refusesSixBit() {
-        SequenceMap.checkNidLayout("db", java.util.Set.of());
-        SequenceMap.checkNidLayout("db", java.util.Set.of(2, 255));
-        assertThrows(IncompatibleNidLayoutException.class,
-                () -> SequenceMap.checkNidLayout("db", java.util.Set.of(2, 63)));
-    }
-
-    @Test
-    void nextPatternSequence_stopsAt254_neverIssuingThePatternPatternSequence() {
+    void eightBit_nextPatternSequence_stopsAt254() {
         SequenceMap sequenceMap = new SequenceMap(db, defaultHandle());
-        sequenceMap.nextSequenceMap.get(NidCodec8.PATTERN_PATTERN_SEQUENCE)
-                .set(NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE);
+        sequenceMap.nextSequenceMap.get(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE).set(254);
 
         assertEquals(254, sequenceMap.nextPatternSequence());
-
         IllegalStateException full = assertThrows(IllegalStateException.class,
                 sequenceMap::nextPatternSequence);
         assertTrue(full.getMessage().contains("Pattern limit reached"), full.getMessage());
         assertThrows(IllegalStateException.class, sequenceMap::nextPatternSequence,
                 "the limit holds on every later attempt");
-        assertEquals(255L, sequenceMap.nextSequenceMap.get(NidCodec8.PATTERN_PATTERN_SEQUENCE).get(),
+        assertEquals(255L, sequenceMap.nextSequenceMap.get(EIGHT_BIT_PATTERN_PATTERN_SEQUENCE).get(),
                 "the counter stops at the limit instead of advancing past it");
+    }
+
+    @Test
+    void sixBit_nextPatternSequence_stopsAt62_andPointsToMigration() throws RocksDBException {
+        writeCounters(Map.of(2, 10L, SIX_BIT_PATTERN_PATTERN_SEQUENCE, 62L));
+        SequenceMap sequenceMap = new SequenceMap(db, defaultHandle());
+
+        assertEquals(62, sequenceMap.nextPatternSequence());
+        IllegalStateException full = assertThrows(IllegalStateException.class,
+                sequenceMap::nextPatternSequence);
+        assertTrue(full.getMessage().contains("6-bit"), full.getMessage());
+        assertTrue(full.getMessage().contains("Migrate"), full.getMessage());
+        assertEquals(63L, sequenceMap.nextSequenceMap.get(SIX_BIT_PATTERN_PATTERN_SEQUENCE).get());
     }
 }

@@ -5,8 +5,7 @@ import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
-import dev.ikm.tinkar.common.id.impl.NidCodec8;
-import dev.ikm.tinkar.common.service.IncompatibleNidLayoutException;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -30,15 +29,18 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
 
     /**
-     * Pattern sequence under which every pattern is keyed (the pattern-of-patterns).
-     * Its counter also issues the pattern sequences of ordinary patterns. Its
-     * presence in the counter table identifies an 8-bit database (ike-issues#1138).
+     * Pattern sequence under which every pattern is keyed (the pattern-of-patterns):
+     * 63 in a 6-bit database, 255 in an 8-bit one (ike-issues#1138). Its counter
+     * also issues the pattern sequences of ordinary patterns.
+     *
+     * @return the pattern-of-patterns sequence of the open database's layout
      */
-    public static final int PATTERN_PATTERN_SEQUENCE = NidCodec8.PATTERN_PATTERN_SEQUENCE;
+    public static int patternPatternSequence() {
+        return NidLayout.active().patternPatternSequence();
+    }
 
-    public static final EntityKey PATTERN_PATTERN_ENTITY_KEY = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternPatternElementSequence);
     public static EntityKey patternPatternEntityKey() {
-        return PATTERN_PATTERN_ENTITY_KEY;
+        return EntityKey.of(patternPatternSequence(), patternPatternElementSequence);
     }
     /**
      * TODO: Temporary fixed UUID until concepts provide their own pattern PublicId field (currently only semantics do).
@@ -47,7 +49,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final int conceptPatternElementSequence = nextPatternElementSequence++;
 
     public static EntityKey conceptPatternEntityKey() {
-        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, conceptPatternElementSequence);
+        return EntityKey.of(patternPatternSequence(), conceptPatternElementSequence);
     }
     /**
      * TODO: Temporary fixed UUID until concepts provide their own pattern PublicId field (currently only semantics do).
@@ -56,7 +58,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     private static final int stampPatternElementSequence = nextPatternElementSequence++;
 
     public static EntityKey stampPatternEntityKey() {
-        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, stampPatternElementSequence);
+        return EntityKey.of(patternPatternSequence(), stampPatternElementSequence);
     }
 
     /**
@@ -76,8 +78,8 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
         sequenceReport.append("Sequences\n").append(nextSequenceMap).append("\n");
 
         for (Map.Entry<Integer, AtomicLong> entry : nextSequenceMap.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
-            EntityKey patternKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, entry.getKey());
-            int patternNid = NidCodec8.encode(patternKey.patternSequence(), patternKey.elementSequence());
+            EntityKey patternKey = EntityKey.of(patternPatternSequence(), entry.getKey());
+            int patternNid = NidLayout.active().encode(patternKey.patternSequence(), patternKey.elementSequence());
             String patternName = PrimitiveData.textWithNid(patternNid);
             sequenceReport.append(String.format("%,d=%,d, ", entry.getKey(), entry.getValue().get()));
             sequenceReport.append(String.format(
@@ -94,11 +96,9 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     /**
-     * Open the nextSequenceMap from RocksDB.
-     *
-     * @throws IncompatibleNidLayoutException if the database holds counters but
-     *         none at {@link #PATTERN_PATTERN_SEQUENCE} — a database written with
-     *         the 6-bit nid layout, which this build cannot read
+     * Open the nextSequenceMap from RocksDB and activate the database's nid layout
+     * (ike-issues#1138): {@linkplain NidLayout#detect detected} from the loaded
+     * counters, or 8-bit for a new database.
      */
     public void open() {
         try (RocksIterator it = rocksIterator()) {
@@ -121,40 +121,27 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                     }
                 }
                 LOG.info("═══════════════════════════════════════════════════════════");
-                checkNidLayout(db.getName(), nextSequenceMap.keySet());
+                NidLayout layout = NidLayout.detect(nextSequenceMap.keySet());
+                NidLayout.activate(layout);
+                if (layout == NidLayout.SIX_BIT) {
+                    LOG.warn("SequenceMap.open() - {} uses the 6-bit nid layout (at most {} patterns); "
+                            + "opened in 6-bit mode. Migrate it to an 8-bit database for up to {} patterns.",
+                            db.getName(), NidLayout.SIX_BIT.patternPatternSequence(),
+                            NidLayout.EIGHT_BIT.patternPatternSequence());
+                } else {
+                    LOG.info("SequenceMap.open() - {} nid layout", layout.displayName());
+                }
             } else {
+                // A new database always gets the current layout.
+                NidLayout.activate(NidLayout.EIGHT_BIT);
                 LOG.info("═══════════════════════════════════════════════════════════");
                 LOG.info("SequenceMap.open() - Empty DB, initializing bootstrap state");
                 LOG.info("  Setting pattern[{}] = {} (PATTERN_PATTERN_SEQUENCE)", 
-                        PATTERN_PATTERN_SEQUENCE, nextPatternElementSequence);
+                        patternPatternSequence(), nextPatternElementSequence);
                 LOG.info("═══════════════════════════════════════════════════════════");
                 // Column family is empty: do identifier bootstrap initialization.
-                nextSequenceMap.put(PATTERN_PATTERN_SEQUENCE, new AtomicLong(nextPatternElementSequence)); // Pattern pattern sequences
+                nextSequenceMap.put(patternPatternSequence(), new AtomicLong(nextPatternElementSequence)); // Pattern pattern sequences
             }
-        }
-    }
-
-    /**
-     * Refuse a database written with the 6-bit nid layout (ike-issues#1138).
-     *
-     * <p>The 6-bit layout cannot produce pattern sequence
-     * {@link #PATTERN_PATTERN_SEQUENCE}, and the 8-bit layout writes its counter
-     * when the database is created, so a non-empty counter table without it is
-     * a 6-bit database. Its entity bytes hold 6-bit nids, which the 8-bit codec
-     * would silently decode to the wrong entities.
-     *
-     * @param dataStorePath    the database location, for the refusal message
-     * @param patternSequences the pattern sequences that have counters
-     * @throws IncompatibleNidLayoutException if the database uses the 6-bit layout
-     */
-    static void checkNidLayout(String dataStorePath, Set<Integer> patternSequences) {
-        if (!patternSequences.isEmpty() && !patternSequences.contains(PATTERN_PATTERN_SEQUENCE)) {
-            throw new IncompatibleNidLayoutException(dataStorePath,
-                    "This RocksDB knowledge base uses the 6-bit nid layout (at most 63 patterns); "
-                    + "this build uses the 8-bit layout (up to 255 patterns) and cannot read it. "
-                    + "Export it to protobuf with a 6-bit build, then import the export with this build. "
-                    + "(No counter for pattern-of-patterns sequence " + PATTERN_PATTERN_SEQUENCE
-                    + "; counters found for " + new TreeSet<>(patternSequences) + ".)");
         }
     }
 
@@ -201,32 +188,37 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
      * pattern group using a map with atomic counters to provide thread-safe increments.
      *
      * @return the next pattern sequence value starting from 1.
-     * @throws IllegalStateException if every assignable pattern sequence
-     *         (1..{@value NidCodec8#MAX_ASSIGNABLE_PATTERN_SEQUENCE}) is taken
+     * @throws IllegalStateException if every assignable pattern sequence of the
+     *         active layout (1..{@link NidLayout#maxAssignablePatternSequence()}) is taken
      */
     public int nextPatternSequence() {
-        AtomicLong patternCounter = nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE);
+        AtomicLong patternCounter = nextSequenceMap.get(patternPatternSequence());
+        int maxAssignable = NidLayout.active().maxAssignablePatternSequence();
         // Never hand out the pattern-of-patterns' own sequence: the counter stops,
         // it does not wrap into it (ike-issues#1138).
         long candidate = patternCounter.getAndUpdate(
-                next -> next > NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE ? next : next + 1);
-        if (candidate > NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE) {
-            throw new IllegalStateException("Pattern limit reached: all "
-                    + NidCodec8.MAX_ASSIGNABLE_PATTERN_SEQUENCE
-                    + " assignable pattern sequences are in use; no new pattern can be created.");
+                next -> next > maxAssignable ? next : next + 1);
+        if (candidate > maxAssignable) {
+            throw new IllegalStateException("Pattern limit reached: all " + maxAssignable
+                    + " assignable pattern sequences of the " + NidLayout.active().displayName()
+                    + " nid layout are in use; no new pattern can be created."
+                    + (NidLayout.active() == NidLayout.SIX_BIT
+                        ? " Migrate this database to the 8-bit layout for up to "
+                          + NidLayout.EIGHT_BIT.maxAssignablePatternSequence() + " patterns."
+                        : ""));
         }
         int newPatternSequence = (int) candidate;
         nextSequenceMap.put(newPatternSequence, new AtomicLong(FIRST_ELEMENT_SEQUENCE_OF_PATTERN));
         // Diagnostic for ikmdev/komet-desktop#12: this should fire on every new-pattern publish.
         // If it doesn't, the publish path took the wrong branch in UuidEntityKeyMap.makeEntityKey.
         LOG.info("nextPatternSequence: allocated element {} in PATTERN_PATTERN namespace (counter now {})",
-                newPatternSequence, nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).get());
+                newPatternSequence, nextSequenceMap.get(patternPatternSequence()).get());
         return newPatternSequence;
     }
 
     public SpliteratorForEntityKeys allEntityLongKeySpliterator() {
     Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
-                .filter(entry -> entry.getKey() != PATTERN_PATTERN_SEQUENCE) // Exclude the meta-entry
+                .filter(entry -> entry.getKey() != patternPatternSequence()) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get()))
                 .toList();
@@ -236,7 +228,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public ImmutableList<SpliteratorForLongKeyOfPattern> allPatternSpliterators() {
         return Lists.immutable.ofAll(
                 nextSequenceMap.entrySet().stream()
-                .filter(entry -> entry.getKey() != PATTERN_PATTERN_SEQUENCE) // Exclude the meta-entry
+                .filter(entry -> entry.getKey() != patternPatternSequence()) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get())).toList());
     }
@@ -251,7 +243,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     public LongSpliteratorOfPattern spliteratorOfPatterns() {
-        long maxPatternSequenceExclusive = nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).get();
-        return new SpliteratorForLongKeyOfPattern(PATTERN_PATTERN_SEQUENCE,  FIRST_ELEMENT_SEQUENCE_OF_PATTERN, maxPatternSequenceExclusive);
+        long maxPatternSequenceExclusive = nextSequenceMap.get(patternPatternSequence()).get();
+        return new SpliteratorForLongKeyOfPattern(patternPatternSequence(),  FIRST_ELEMENT_SEQUENCE_OF_PATTERN, maxPatternSequenceExclusive);
     }
 }

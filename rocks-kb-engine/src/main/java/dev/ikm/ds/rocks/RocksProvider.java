@@ -8,7 +8,7 @@ import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
-import dev.ikm.tinkar.common.id.impl.NidCodec8;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.common.service.*;
 import dev.ikm.tinkar.provider.search.DataStoreLockProbe;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
@@ -226,9 +226,9 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                 safeCloseNativeResources();
                 throw new RuntimeException(e);
             } catch (RuntimeException e) {
-                // A map refused the opened database (e.g. IncompatibleNidLayoutException,
-                // ike-issues#1138). Release it without closing the maps: a map's close
-                // saves its state, and a refused database must stay unmodified.
+                // A map failed while opening the database. Release it without closing
+                // the maps: a map's close saves its state, and a database that failed
+                // to open must stay unmodified.
                 closeRefusedDatabase();
                 throw e;
             }
@@ -496,18 +496,18 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     public long elementSequenceForNid(int nid) {
-        return NidCodec8.decodeElementSequence(nid);
+        return NidLayout.active().decodeElementSequence(nid);
     }
     public int patternSequenceForNid(int nid) {
-        return NidCodec8.decodePatternSequence(nid);
+        return NidLayout.active().decodePatternSequence(nid);
     }
 
     public long longKeyForNid(int nid) {
-        return NidCodec8.longKeyForNid(nid);
+        return NidLayout.active().longKeyForNid(nid);
     }
 
     public int stampSequenceForStampNid(int nid) {
-        return (int) NidCodec8.decodeElementSequence(nid);
+        return (int) NidLayout.active().decodeElementSequence(nid);
     }
 
     @Override
@@ -523,7 +523,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             if (optionalKey.isPresent()) {
                 int nid = optionalKey.get().nid();
                 LOG.info("nidForUuids: existing match for uuid={} -> nid={} (patternSeq={}, elementSeq={})",
-                        uuid, nid, NidCodec8.decodePatternSequence(nid), NidCodec8.decodeElementSequence(nid));
+                        uuid, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
                 return nid;
             }
         }
@@ -532,7 +532,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
             int nid = stampEntityKey.nid();
             LOG.info("nidForUuids: allocated via scoped pattern {} -> nid={} (patternSeq={}, elementSeq={})",
-                    patternPublicId, nid, NidCodec8.decodePatternSequence(nid), NidCodec8.decodeElementSequence(nid));
+                    patternPublicId, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
             return nid;
         }
 
@@ -635,7 +635,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     public void forEachParallel(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
         // Collect directly to array
         long[] keys = new long[nids.size()];
-        nids.forEachWithIndex((nid, index) -> keys[index] = NidCodec8.longKeyForNid(nid));
+        nids.forEachWithIndex((nid, index) -> keys[index] = NidLayout.active().longKeyForNid(nid));
 
         // Sort in place (no extra allocation)
         Arrays.parallelSort(keys);
@@ -681,7 +681,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void forEach(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
         MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
-        nids.collectLong(nid -> NidCodec8.longKeyForNid(nid), longCollection);
+        nids.collectLong(nid -> NidLayout.active().longKeyForNid(nid), longCollection);
         longCollection = longCollection.toSortedList();
         long[] keys = longCollection.toArray();
         // Pass false to disable parallel execution (splitting)
@@ -787,20 +787,20 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachSemanticNidOfPattern(int patternNid, IntProcedure procedure) {
-        int patternSequence = (int) NidCodec8.decodeElementSequence(patternNid);
+        int patternSequence = (int) NidLayout.active().decodeElementSequence(patternNid);
         LongSpliteratorOfPattern spliteratorOfPattern = this.sequenceMap.spliteratorOfPattern(patternSequence);
-        spliteratorOfPattern.forEachRemaining((LongConsumer) longKey -> procedure.accept(NidCodec8.nidForLongKey(longKey)));
+        spliteratorOfPattern.forEachRemaining((LongConsumer) longKey -> procedure.accept(NidLayout.active().nidForLongKey(longKey)));
     }
 
     @Override
     public void forEachPatternNid(IntProcedure procedure) {
         // Diagnostic for ikmdev/komet-desktop#12: shows exactly what the pattern navigator's reload sees.
-        long counterValue = sequenceMap.nextSequenceMap.get(dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE).get();
+        long counterValue = sequenceMap.nextSequenceMap.get(dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence()).get();
         java.util.concurrent.atomic.AtomicInteger visitedCount = new java.util.concurrent.atomic.AtomicInteger(0);
         LOG.info("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
-                dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE, counterValue);
+                dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence(), counterValue);
         sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> {
-            int nid = NidCodec8.nidForLongKey(longKey);
+            int nid = NidLayout.active().nidForLongKey(longKey);
             visitedCount.incrementAndGet();
             procedure.accept(nid);
         });
@@ -820,9 +820,9 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void forEachSemanticNid(IntProcedure procedure) {
         BitSet excludedPatternSequences = new BitSet();
-        excludedPatternSequences.set((int) NidCodec8.decodeElementSequence(EntityBinding.Concept.pattern().nid()));
-        excludedPatternSequences.set((int) NidCodec8.decodeElementSequence(EntityBinding.Stamp.pattern().nid()));
-        excludedPatternSequences.set((int) NidCodec8.decodeElementSequence(EntityBinding.Pattern.pattern().nid()));
+        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Concept.pattern().nid()));
+        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Stamp.pattern().nid()));
+        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Pattern.pattern().nid()));
 
         ImmutableList<SpliteratorForLongKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
 
@@ -862,7 +862,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             for (Spliterator.OfLong subSpliterator : subSpliterators) {
                 scope.fork(() -> {
                     subSpliterator.forEachRemaining((LongConsumer) longKey ->
-                            procedure.accept(NidCodec8.nidForLongKey(longKey)));
+                            procedure.accept(NidLayout.active().nidForLongKey(longKey)));
                     return null;
                 });
             }
@@ -876,13 +876,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachSemanticNidForComponent(int componentNid, IntProcedure procedure) {
-        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidCodec8.longKeyForNid(componentNid));
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidLayout.active().longKeyForNid(componentNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 
     @Override
     public void forEachSemanticNidForComponentOfPattern(int componentNid, int patternNid, IntProcedure procedure) {
-        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidCodec8.longKeyForNid(componentNid), (int) NidCodec8.decodeElementSequence(patternNid));
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidLayout.active().longKeyForNid(componentNid), (int) NidLayout.active().decodeElementSequence(patternNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 

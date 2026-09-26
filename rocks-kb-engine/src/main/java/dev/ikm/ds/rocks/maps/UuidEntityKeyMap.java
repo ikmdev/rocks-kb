@@ -3,7 +3,7 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
-import dev.ikm.tinkar.common.id.impl.NidCodec8;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
 
@@ -22,7 +22,7 @@ import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE;
+import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence;
 import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternEntityKey;
 
 public class UuidEntityKeyMap
@@ -294,7 +294,7 @@ public class UuidEntityKeyMap
             LOG.info("makeEntityKey: uuid={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
                     uuid, patternKey, actualPatternPatternKey, isPatternPattern);
             if (isPatternPattern) {
-                int patternSequence = PATTERN_PATTERN_SEQUENCE;
+                int patternSequence = patternPatternSequence();
                 long patternElementSequence = this.sequenceMap.nextPatternSequence();
                 EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
                 traceAllocation("pattern-entity", entityKey, patternKey);
@@ -315,7 +315,7 @@ public class UuidEntityKeyMap
             if (patternSequence == 1) {
                 LOG.warn("Pattern sequence 1 is reserved for the pattern entity key");
             }
-            EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence);
+            EntityKey patternEntityKey = EntityKey.of(patternPatternSequence(), patternSequence);
             traceAllocation("pattern-def", patternEntityKey, null);
             return patternEntityKey;
         });
@@ -386,8 +386,8 @@ public class UuidEntityKeyMap
         }
         PublicId entityPublicId = ENTITY_PUBLIC_ID.isBound() ? ENTITY_PUBLIC_ID.get() : null;
         int nid = entityKey.nid();
-        int decodedPattern = NidCodec8.decodePatternSequence(nid);
-        long decodedElement = NidCodec8.decodeElementSequence(nid);
+        int decodedPattern = NidLayout.active().decodePatternSequence(nid);
+        long decodedElement = NidLayout.active().decodeElementSequence(nid);
         boolean consistent = decodedPattern == entityKey.patternSequence()
                 && decodedElement == entityKey.elementSequence();
         String message = String.format(
