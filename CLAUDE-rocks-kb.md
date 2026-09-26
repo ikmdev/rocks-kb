@@ -21,7 +21,7 @@ mvn clean verify -DskipTests -T4
 ## Key Facts
 
 - GroupId: `dev.ikm.ike`
-- Uses `--enable-preview` (Java 25) — set via `maven.compiler.enablePreview`
+- Uses `--enable-preview` (Java 27) — set via `maven.compiler.enablePreview`
 - BOM: imports `dev.ikm.ike:ike-bom`
 - Nid layout is per database (ike-issues#1138): new databases use NidCodec8 (8-bit pattern + 24-bit element, up to 255 patterns); a database written with NidCodec6 (6-bit + 26-bit, 63 patterns) is opened in 6-bit mode
 - `SequenceMap.open()` detects the layout (counter at 255 → 8-bit; none → 6-bit; empty → new, 8-bit) and activates the process-wide `NidLayout`; everything encodes/decodes nids through `NidLayout.active()`
