@@ -1,5 +1,7 @@
 package dev.ikm.ds.rocks.tasks;
 
+import dev.ikm.tinkar.common.util.thread.StructuredScopes;
+import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
 import dev.ikm.tinkar.common.service.TrackingCallable;
@@ -52,7 +54,7 @@ public final class ExportAllPatternsToZip extends TrackingCallable<Path> {
         AtomicLong globalDone = new AtomicLong(0L);
         List<ExportPatternToZip.Result> results = new ArrayList<>(ranges.size());
 
-        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             List<StructuredTaskScope.Subtask<ExportPatternToZip.Result>> subtasks = new ArrayList<>(ranges.size());
             for (LongSpliteratorOfPattern r : ranges) {
                 String entryName = "pattern-" + r.patternSequence() + ".bin";

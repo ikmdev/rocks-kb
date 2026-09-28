@@ -5,7 +5,7 @@
  <parent>
         <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>178</version>
+        <version>186</version>
         <relativePath/>
     </parent>
 
@@ -46,6 +46,7 @@
     <properties>
         <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
+        <java.version>27</java.version>
     </properties>
 
     <subprojects>

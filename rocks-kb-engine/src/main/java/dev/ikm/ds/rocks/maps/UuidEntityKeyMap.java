@@ -3,7 +3,7 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
-import dev.ikm.tinkar.common.id.impl.NidCodec6;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
 
@@ -13,7 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -22,7 +22,7 @@ import org.rocksdb.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE;
+import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence;
 import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternEntityKey;
 
 public class UuidEntityKeyMap
@@ -190,7 +190,7 @@ public class UuidEntityKeyMap
      * Diagnostic: log what EntityKey is actually present in the loaded map for each of the three
      * system pattern UUIDs. If the stored EntityKey for PATTERN_PATTERN_UUID has an elementSequence
      * other than the hardcoded {@link SequenceMap#patternPatternEntityKey()} value, then the check
-     * in {@link #makeEntityKey(UUID)} will misclassify newly created patterns as regular entities
+     * in {@link #allocateEntityKey()} will misclassify newly created patterns as regular entities
      * and allocate them in the wrong pattern bucket (see issue ikmdev/komet-desktop#12).
      */
     private void logSystemPatternBootstrapState() {
@@ -255,102 +255,108 @@ public class UuidEntityKeyMap
         }
 
         EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId)
-                .where(TRACE_ALLOC, traceLevel).call(() ->
-                switch (patternId.uuidCount()) {
-                    case 1 -> uuidEntityKeyMap.computeIfAbsent(patternId.asUuidArray()[0], this::makePatternEntityKey);
-                    default -> uuidEntityKeyMap.computeIfAbsent(patternId.asUuidArray()[0], this::makeMultiUuidPatternEntityKey);
-                });
+                .where(TRACE_ALLOC, traceLevel).call(() -> keyFor(patternId, this::allocatePatternEntityKey));
 
         return ScopedValue.where(PATTERN_ENTITY_KEY, patternKey)
                 .where(ENTITY_PUBLIC_ID, entityId)
-                .where(TRACE_ALLOC, traceLevel).call(() ->
-              switch (entityId.uuidCount()) {
-                case 1 -> uuidEntityKeyMap.computeIfAbsent(entityId.asUuidArray()[0], this::makeEntityKey);
-                default -> uuidEntityKeyMap.computeIfAbsent(entityId.asUuidArray()[0], this::makeMultiUuidEntityKey);
-            });
+                .where(TRACE_ALLOC, traceLevel).call(() -> keyFor(entityId, this::allocateEntityKey));
     }
 
-    private EntityKey makeMultiUuidPatternEntityKey(UUID uuid) {
-        return getEntityKey(uuid).orElseGet(() -> makeMultiUuidEntityKey(this::makePatternEntityKey));
-    }
-
-    private EntityKey makeMultiUuidEntityKey(UUID uuid) {
-        return getEntityKey(uuid).orElseGet(() -> makeMultiUuidEntityKey(this::makeEntityKey));
-    }
-
-    private EntityKey makeEntityKey(UUID uuid) {
-        return getEntityKey(uuid).orElseGet(() -> {
-            EntityKey patternKey = PATTERN_ENTITY_KEY.get();
-            // Identify "is the enclosing pattern the Pattern Pattern?" by the runtime-stored EntityKey
-            // for PATTERN_PATTERN_UUID, not by the static patternPatternEntityKey() value. The static
-            // value assumes elementSequence=1, but databases built with a different assignment store
-            // PATTERN_PATTERN_UUID at some other element sequence — and an equality check against the
-            // static value then misclassifies all new patterns as regular entities, allocating them
-            // outside the PATTERN_PATTERN namespace and making them invisible to forEachPatternNid.
-            // See ikmdev/komet-desktop#12.
-            EntityKey actualPatternPatternKey = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID)
-                    .orElse(SequenceMap.patternPatternEntityKey());
-            boolean isPatternPattern = patternKey.equals(actualPatternPatternKey);
-            LOG.info("makeEntityKey: uuid={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
-                    uuid, patternKey, actualPatternPatternKey, isPatternPattern);
-            if (isPatternPattern) {
-                int patternSequence = PATTERN_PATTERN_SEQUENCE;
-                long patternElementSequence = this.sequenceMap.nextPatternSequence();
-                EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
-                traceAllocation("pattern-entity", entityKey, patternKey);
-                return entityKey;
-            }
-            // Regular entities: use the pattern's own sequence bucket (elementSequence allocated within that bucket).
-            int patternSequence = (int) patternKey.elementSequence();
-            long patternElementSequence = this.sequenceMap.nextElementSequence(patternSequence);
-            EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
-            traceAllocation("entity", entityKey, patternKey);
-            return entityKey;
-        });
-    }
-
-    private EntityKey makePatternEntityKey(UUID uuid) {
-        return getEntityKey(uuid).orElseGet(() -> {
-            int patternSequence = this.sequenceMap.nextPatternSequence();
-            if (patternSequence == 1) {
-                LOG.warn("Pattern sequence 1 is reserved for the pattern entity key");
-            }
-            EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence);
-            traceAllocation("pattern-def", patternEntityKey, null);
-            return patternEntityKey;
-        });
-    }
-
-    private EntityKey makeMultiUuidEntityKey(Function<UUID, EntityKey> creator) {
-        PublicId entityPublicId = ENTITY_PUBLIC_ID.get();
-        uuidLockTable.lock(entityPublicId);
-        EntityKey entityKey = null;
-        try {
-            // See if an EntityKey is already in the uuidEntityKeyMap.
-            for (UUID entityUuid : entityPublicId.asUuidArray()) {
-                if (uuidEntityKeyMap.containsKey(entityUuid)) {
-                    entityKey = uuidEntityKeyMap.get(entityUuid);
-                    break;
-                }
-            }
-            if (entityKey != null) {
-                // Ensure entityKey is associated with all UUIDs.
-                for (UUID entityUuid : entityPublicId.asUuidArray()) {
-                    if (!uuidEntityKeyMap.containsKey(entityUuid)) {
-                        uuidEntityKeyMap.put(entityUuid, entityKey);
-                    }
-                }
-            } else {
-                UUID[] uuids = entityPublicId.asUuidArray();
-                entityKey = creator.apply(uuids[0]);
-                for (int i = 1; i < uuids.length; i++) {
-                    addUuidToEntityKeyMap(uuids[i], entityKey);
-                }
-            }
-        } finally {
-            uuidLockTable.unlock(entityPublicId);
+    /**
+     * Returns the {@link EntityKey} of {@code id}, allocating one if none of its
+     * UUIDs has a key yet, and maps every UUID of {@code id} to it.
+     *
+     * <p>Allocation is guarded by the {@link MultiUuidLockTable} stripes of the
+     * id's UUIDs, never by {@code ConcurrentHashMap.computeIfAbsent}: a mapping
+     * function that writes the other UUIDs of a multi-UUID id back into the same
+     * map deadlocks against a concurrent allocation for one of those UUIDs, which
+     * holds that bin while waiting for the stripes (IKE-Network/ike-issues#1140).
+     * The map is only read and {@code put} to, and ids that share a UUID
+     * serialize on its stripe, so each id gets exactly one key.
+     *
+     * @param id        the public id
+     * @param allocator allocates a new key; called at most once, under the lock
+     * @return the id's entity key
+     */
+    private EntityKey keyFor(PublicId id, Supplier<EntityKey> allocator) {
+        UUID[] uuids = id.asUuidArray();
+        EntityKey existing = existingKey(uuids);
+        if (existing != null && allMapped(uuids)) {
+            return existing;
         }
+        uuidLockTable.lock(id);
+        try {
+            EntityKey entityKey = existingKey(uuids);
+            if (entityKey == null) {
+                entityKey = allocator.get();
+            }
+            for (UUID uuid : uuids) {
+                if (!uuidEntityKeyMap.containsKey(uuid)) {
+                    addUuidToEntityKeyMap(uuid, entityKey);
+                }
+            }
+            return entityKey;
+        } finally {
+            uuidLockTable.unlock(id);
+        }
+    }
+
+    private EntityKey existingKey(UUID[] uuids) {
+        for (UUID uuid : uuids) {
+            Optional<EntityKey> entityKey = getEntityKey(uuid);
+            if (entityKey.isPresent()) {
+                return entityKey.get();
+            }
+        }
+        return null;
+    }
+
+    private boolean allMapped(UUID[] uuids) {
+        for (UUID uuid : uuids) {
+            if (!uuidEntityKeyMap.containsKey(uuid)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private EntityKey allocateEntityKey() {
+        EntityKey patternKey = PATTERN_ENTITY_KEY.get();
+        // Identify "is the enclosing pattern the Pattern Pattern?" by the runtime-stored EntityKey
+        // for PATTERN_PATTERN_UUID, not by the static patternPatternEntityKey() value. The static
+        // value assumes elementSequence=1, but databases built with a different assignment store
+        // PATTERN_PATTERN_UUID at some other element sequence — and an equality check against the
+        // static value then misclassifies all new patterns as regular entities, allocating them
+        // outside the PATTERN_PATTERN namespace and making them invisible to forEachPatternNid.
+        // See ikmdev/komet-desktop#12.
+        EntityKey actualPatternPatternKey = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID)
+                .orElse(SequenceMap.patternPatternEntityKey());
+        boolean isPatternPattern = patternKey.equals(actualPatternPatternKey);
+        LOG.info("allocateEntityKey: id={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
+                ENTITY_PUBLIC_ID.get(), patternKey, actualPatternPatternKey, isPatternPattern);
+        if (isPatternPattern) {
+            int patternSequence = patternPatternSequence();
+            long patternElementSequence = this.sequenceMap.nextPatternSequence();
+            EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
+            traceAllocation("pattern-entity", entityKey, patternKey);
+            return entityKey;
+        }
+        // Regular entities: use the pattern's own sequence bucket (elementSequence allocated within that bucket).
+        int patternSequence = (int) patternKey.elementSequence();
+        long patternElementSequence = this.sequenceMap.nextElementSequence(patternSequence);
+        EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence);
+        traceAllocation("entity", entityKey, patternKey);
         return entityKey;
+    }
+
+    private EntityKey allocatePatternEntityKey() {
+        int patternSequence = this.sequenceMap.nextPatternSequence();
+        if (patternSequence == 1) {
+            LOG.warn("Pattern sequence 1 is reserved for the pattern entity key");
+        }
+        EntityKey patternEntityKey = EntityKey.of(patternPatternSequence(), patternSequence);
+        traceAllocation("pattern-def", patternEntityKey, null);
+        return patternEntityKey;
     }
 
     private void addUuidToEntityKeyMap(UUID uuid, EntityKey entityKey) {
@@ -386,8 +392,8 @@ public class UuidEntityKeyMap
         }
         PublicId entityPublicId = ENTITY_PUBLIC_ID.isBound() ? ENTITY_PUBLIC_ID.get() : null;
         int nid = entityKey.nid();
-        int decodedPattern = NidCodec6.decodePatternSequence(nid);
-        long decodedElement = NidCodec6.decodeElementSequence(nid);
+        int decodedPattern = NidLayout.active().decodePatternSequence(nid);
+        long decodedElement = NidLayout.active().decodeElementSequence(nid);
         boolean consistent = decodedPattern == entityKey.patternSequence()
                 && decodedElement == entityKey.elementSequence();
         String message = String.format(
