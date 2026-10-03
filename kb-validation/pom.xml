@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  xsi:schemaLocation="http://maven.apache.org/POM/4.1.0 https://maven.apache.org/xsd/maven-4.1.0.xsd">
+    <modelVersion>4.1.0</modelVersion>
+
+    <parent/>
+
+    <artifactId>kb-validation</artifactId>
+    <packaging>jar</packaging>
+
+    <name>kb-validation</name>
+    <description>Release validation of the knowledge base over SNOMED CT: the SNOMED CT
+        knowledge base loaded into each store provider, classified, queried, exported and
+        restored; and classified at each of its release dates against a recorded reference
+        and against SNOMED International's inferred form (IKE-Network/ike-issues#1210).
+        Tests only, tagged "snomed"; they run with -Psnomed.</description>
+
+    <properties>
+        <!-- The knowledge base the tests start from: a protobuf export, so it is independent
+             of every store format the 64-bit work changes. Licensed content: it is on
+             private-assets, which needs credentials and must not be mirrored through
+             ike-public. -->
+        <snomedct-kb.version>20250101</snomedct-kb.version>
+        <!-- SNOMED International's RF2 release; only its full inferred relationship file is
+             used, for SNOMED's own classification at each release date. -->
+        <snomedct-origin.version>snomedct-international-20250801T120000Z+1.0.0-SNAPSHOT</snomedct-origin.version>
+        <snomed.data.directory>${project.build.directory}/data</snomed.data.directory>
+        <test.excludedGroups>snomed</test.excludedGroups>
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.ikm.ike</groupId>
+            <artifactId>rocks-kb-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <classifier>osx</classifier>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <classifier>linux64</classifier>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>rocksdbjni</artifactId>
+            <classifier>win64</classifier>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>jna</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>jna-platform</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>data-spinedarray-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>common</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>entity</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>terms</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>entity-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>executor-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>search-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>reasoner-service</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>reasoner-elk-snomed</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.elk</groupId>
+            <artifactId>elk-snomed</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>test-fixtures</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.collections</groupId>
+            <artifactId>eclipse-collections</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>test-logging</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    <runOrder>alphabetical</runOrder>
+                    <!-- Each stage runs in its own JVM (ForkedJvm), which inherits these
+                         options; a SNOMED CT store and SNOMED's full inferred history
+                         need the heap. -->
+                    <argLine>@{failsafeArgLine} --enable-preview -Xmx24g</argLine>
+                    <systemPropertyVariables>
+                        <snomed.data.directory>${snomed.data.directory}</snomed.data.directory>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Runs the tests tagged "snomed": fetches the SNOMED CT knowledge base (from
+             private-assets, which needs credentials) and SNOMED's full inferred
+             relationships, and lets failsafe run them. -->
+        <profile>
+            <id>snomed</id>
+            <properties>
+                <test.excludedGroups/>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>snomed-knowledge-base</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>copy</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>network.ike.data</groupId>
+                                            <artifactId>snomedct-kb</artifactId>
+                                            <version>${snomedct-kb.version}</version>
+                                            <classifier>pb</classifier>
+                                            <type>zip</type>
+                                            <destFileName>snomedct-kb-pb.zip</destFileName>
+                                        </artifactItem>
+                                    </artifactItems>
+                                    <outputDirectory>${snomed.data.directory}</outputDirectory>
+                                    <overWriteIfNewer>true</overWriteIfNewer>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>snomed-inferred-relationships</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>unpack</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>dev.ikm.data.snomedct</groupId>
+                                            <artifactId>snomedct-origin</artifactId>
+                                            <version>${snomedct-origin.version}</version>
+                                            <type>zip</type>
+                                            <includes>**/Full/Terminology/sct2_Relationship_Full_INT_*.txt</includes>
+                                        </artifactItem>
+                                    </artifactItems>
+                                    <outputDirectory>${snomed.data.directory}/rf2</outputDirectory>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
