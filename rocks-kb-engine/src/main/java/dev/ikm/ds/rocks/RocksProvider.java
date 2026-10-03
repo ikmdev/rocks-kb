@@ -513,18 +513,25 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public int nidForUuids(UUID... uuids) {
-        // Diagnostic for ikmdev/komet-desktop#12: shows which path produces the nid for a new pattern UUID.
-        boolean scopedBound = SCOPED_PATTERN_PUBLICID_FOR_NID.isBound();
-        LOG.info("nidForUuids: uuids={}, scopedPatternBound={}, scopedPatternPublicId={}",
-                Arrays.toString(uuids),
-                scopedBound,
-                scopedBound ? SCOPED_PATTERN_PUBLICID_FOR_NID.get() : null);
+        // Diagnostic for ikmdev/komet-desktop#12 (closed): which path produces the nid for a
+        // new pattern UUID. Debug only: this runs for every nid lookup, millions of times in a
+        // large import.
+        boolean debug = LOG.isDebugEnabled();
+        if (debug) {
+            boolean scopedBound = SCOPED_PATTERN_PUBLICID_FOR_NID.isBound();
+            LOG.debug("nidForUuids: uuids={}, scopedPatternBound={}, scopedPatternPublicId={}",
+                    Arrays.toString(uuids),
+                    scopedBound,
+                    scopedBound ? SCOPED_PATTERN_PUBLICID_FOR_NID.get() : null);
+        }
         for (UUID uuid: uuids) {
             Optional<EntityKey> optionalKey = uuidEntityKeyMap.getEntityKey(uuid);
             if (optionalKey.isPresent()) {
                 int nid = optionalKey.get().nid();
-                LOG.info("nidForUuids: existing match for uuid={} -> nid={} (patternSeq={}, elementSeq={})",
-                        uuid, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
+                if (debug) {
+                    LOG.debug("nidForUuids: existing match for uuid={} -> nid={} (patternSeq={}, elementSeq={})",
+                            uuid, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
+                }
                 return nid;
             }
         }
@@ -532,8 +539,10 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             PublicId patternPublicId = SCOPED_PATTERN_PUBLICID_FOR_NID.get();
             EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
             int nid = stampEntityKey.nid();
-            LOG.info("nidForUuids: allocated via scoped pattern {} -> nid={} (patternSeq={}, elementSeq={})",
-                    patternPublicId, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
+            if (debug) {
+                LOG.debug("nidForUuids: allocated via scoped pattern {} -> nid={} (patternSeq={}, elementSeq={})",
+                        patternPublicId, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
+            }
             return nid;
         }
 
@@ -797,17 +806,17 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachPatternNid(IntProcedure procedure) {
-        // Diagnostic for ikmdev/komet-desktop#12: shows exactly what the pattern navigator's reload sees.
+        // Diagnostic for ikmdev/komet-desktop#12 (closed): what the pattern navigator's reload sees.
         long counterValue = sequenceMap.nextSequenceMap.get(dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence()).get();
         java.util.concurrent.atomic.AtomicInteger visitedCount = new java.util.concurrent.atomic.AtomicInteger(0);
-        LOG.info("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
+        LOG.debug("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
                 dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence(), counterValue);
         sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> {
             int nid = NidLayout.active().nidForLongKey(longKey);
             visitedCount.incrementAndGet();
             procedure.accept(nid);
         });
-        LOG.info("forEachPatternNid: visited {} pattern nid(s)", visitedCount.get());
+        LOG.debug("forEachPatternNid: visited {} pattern nid(s)", visitedCount.get());
     }
 
     @Override

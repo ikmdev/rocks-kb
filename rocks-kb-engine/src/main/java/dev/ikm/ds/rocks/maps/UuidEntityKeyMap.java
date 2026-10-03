@@ -332,8 +332,11 @@ public class UuidEntityKeyMap
         EntityKey actualPatternPatternKey = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID)
                 .orElse(SequenceMap.patternPatternEntityKey());
         boolean isPatternPattern = patternKey.equals(actualPatternPatternKey);
-        LOG.info("allocateEntityKey: id={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
-                ENTITY_PUBLIC_ID.get(), patternKey, actualPatternPatternKey, isPatternPattern);
+        // Debug only: this runs for every entity allocated, millions of times in a large import.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("allocateEntityKey: id={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
+                    ENTITY_PUBLIC_ID.get(), patternKey, actualPatternPatternKey, isPatternPattern);
+        }
         if (isPatternPattern) {
             int patternSequence = patternPatternSequence();
             long patternElementSequence = this.sequenceMap.nextPatternSequence();
