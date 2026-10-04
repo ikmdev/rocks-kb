@@ -27,7 +27,7 @@
         <snomedct-origin.version>snomedct-international-20250801T120000Z+1.0.0-SNAPSHOT</snomedct-origin.version>
         <snomed.data.directory>${project.build.directory}/data</snomed.data.directory>
         <!-- The IKE starter set the starter-set round trip starts from, from starter-data-ws. -->
-        <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
+        <ike-starter-set.version>1-64bit-SNAPSHOT</ike-starter-set.version>
         <starter.set.data.directory>${project.build.directory}/data</starter.set.data.directory>
         <test.excludedGroups>snomed,starter-set</test.excludedGroups>
         <maven.deploy.skip>true</maven.deploy.skip>
