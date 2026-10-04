@@ -4,6 +4,7 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.export.ExportEntitiesToProtobufFile;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
@@ -201,8 +202,16 @@ class SnomedRoundTripIT {
             ViewCalculator view = Calculators.View.Default();
             long start = System.currentTimeMillis();
             AtomicLong concepts = new AtomicLong();
+            AtomicLong withoutEntity = new AtomicLong();
             AtomicLong withoutDescription = new AtomicLong();
             PrimitiveData.get().forEachConceptNid(nid -> {
+                // A provider may enumerate a nid it allocated for a concept the knowledge base
+                // does not hold (a Rocks KB does, when code asks for the nid of a term the KB
+                // predates); only concepts with an entity are compared across providers.
+                if (EntityService.get().getEntityFast(nid) == null) {
+                    withoutEntity.incrementAndGet();
+                    return;
+                }
                 concepts.incrementAndGet();
                 if (view.getDescriptionText(nid).filter(text -> !text.isBlank()).isEmpty()) {
                     withoutDescription.incrementAndGet();
@@ -216,6 +225,7 @@ class SnomedRoundTripIT {
                 }
             });
             out.setProperty(QUERY + "concepts", Long.toString(concepts.get()));
+            out.setProperty("concept.nids.without.entity", Long.toString(withoutEntity.get()));
             out.setProperty(QUERY + "concepts.without.description", Long.toString(withoutDescription.get()));
             out.setProperty(QUERY + "descendants.of.root", Long.toString(descendants.size()));
             out.setProperty(QUERY + "descendants.without.parents", Long.toString(withoutParents.get()));
