@@ -27,6 +27,16 @@ final class Reference {
     }
 
     static void check(SortedMap<String, String> observed, String referenceName, Path workDirectory) throws IOException {
+        check(observed, referenceName, workDirectory, false);
+    }
+
+    /**
+     * As {@link #check(SortedMap, String, Path)}; a partial run, one that observed only some
+     * of what the reference records (a limited selection, for development), is compared
+     * key by key on what it observed.
+     */
+    static void check(SortedMap<String, String> observed, String referenceName, Path workDirectory, boolean partial)
+            throws IOException {
         Path observedFile = workDirectory.resolve("observed-" + referenceName);
         Properties toWrite = new Properties();
         toWrite.putAll(observed);
@@ -45,7 +55,9 @@ final class Reference {
         }
         List<String> differences = new ArrayList<>();
         TreeSet<String> keys = new TreeSet<>(observed.keySet());
-        keys.addAll(reference.stringPropertyNames());
+        if (!partial) {
+            keys.addAll(reference.stringPropertyNames());
+        }
         for (String key : keys) {
             String expected = reference.getProperty(key);
             String actual = observed.get(key);

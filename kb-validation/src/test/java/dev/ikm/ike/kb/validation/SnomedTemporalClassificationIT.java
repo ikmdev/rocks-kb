@@ -106,7 +106,6 @@ class SnomedTemporalClassificationIT {
 
         TreeMap<String, String> observed = new TreeMap<>();
         observed.put("release.dates", Integer.toString(allTimes.size()));
-        observed.put("release.dates.classified", Integer.toString(times.size()));
         for (String time : times) {
             Properties at = new Properties();
             at.putAll(loaded);
@@ -125,7 +124,7 @@ class SnomedTemporalClassificationIT {
         // The knowledge base's own release: the reasoner infers exactly what SNOMED did
         String last = date(allTimes.getLast());
         assertAll(
-                () -> Reference.check(observed, REFERENCE, work),
+                () -> Reference.check(observed, REFERENCE, work, times.size() < allTimes.size()),
                 () -> {
                     if (times.contains(allTimes.getLast())) {
                         assertEquals("0", observed.get("at." + last + ".snomed.parents.differ"),
