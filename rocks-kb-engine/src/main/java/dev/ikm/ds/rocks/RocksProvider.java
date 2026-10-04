@@ -1,5 +1,6 @@
 package dev.ikm.ds.rocks;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.util.thread.StructuredScopes;
 import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.tinkar.common.util.SetOnce;
@@ -45,7 +46,7 @@ import java.util.function.ObjIntConsumer;
 
 import static dev.ikm.tinkar.common.service.PrimitiveData.SCOPED_PATTERN_PUBLICID_FOR_NID;
 
-public class RocksProvider implements PrimitiveDataService, NidGenerator {
+public class RocksProvider implements PrimitiveDataService, EntityStore, NidGenerator {
     private static final Logger LOG = LoggerFactory.getLogger(RocksProvider.class);
     public static final long defaultCacheSize = 256L * 1024 * 1024; // 256 MB cache
     public static final int defaultBloomFilterBitsPerKey = 10;

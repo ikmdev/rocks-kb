@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.Calculators;
@@ -205,7 +206,7 @@ class SnomedRoundTripIT {
             AtomicLong concepts = new AtomicLong();
             AtomicLong withoutEntity = new AtomicLong();
             AtomicLong withoutDescription = new AtomicLong();
-            PrimitiveData.get().forEachConceptNid(nid -> {
+            EntityStore.current().forEachConceptNid(nid -> {
                 // A provider may enumerate a nid it allocated for a concept the knowledge base
                 // does not hold (a Rocks KB does, when code asks for the nid of a term the KB
                 // predates); only concepts with an entity are compared across providers.

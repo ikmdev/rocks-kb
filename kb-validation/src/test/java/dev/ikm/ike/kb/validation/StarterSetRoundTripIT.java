@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.id.IntIdList;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
@@ -213,7 +214,7 @@ class StarterSetRoundTripIT {
             Count inactive = new Count();
             Count searched = new Count();
             Count notFound = new Count();
-            descriptionPatterns.forEach(patternNid -> PrimitiveData.get().forEachSemanticNidOfPattern(patternNid, nid -> {
+            descriptionPatterns.forEach(patternNid -> EntityStore.current().forEachSemanticNidOfPattern(patternNid, nid -> {
                 descriptions.add();
                 Latest<EntityVersion> latest = view.latest(nid);
                 if (latest.isAbsent()) {
@@ -235,7 +236,7 @@ class StarterSetRoundTripIT {
 
             Count concepts = new Count();
             Count withoutFullyQualifiedName = new Count();
-            PrimitiveData.get().forEachConceptNid(nid -> {
+            EntityStore.current().forEachConceptNid(nid -> {
                 if (EntityHandle.get(nid).isAbsent()) {
                     return; // A nid allocated for a concept the starter set does not hold.
                 }

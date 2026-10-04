@@ -15,6 +15,7 @@
  */
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -124,7 +125,10 @@ class StoreBenchmarkIT {
                 "entities.of.list.shuffled");
         same(checks, result, "store.scan", "store.scan.parallel");
         same(checks, result, "store.semantics.of.pattern", "store.for.each.semantic.of.pattern",
-                "entities.semantics.of.pattern");
+                "entities.semantics.of.pattern", "entities.semantics.of.pattern.stream");
+        same(checks, result, "store.descriptions.for.concept", "entities.descriptions.for.concept",
+                "entities.descriptions.for.concept.stream");
+        same(checks, result, "store.scan", "entities.every", "entities.every.parallel", "entities.count");
 
         Properties reference = reference(machine, provider);
         if (reference == null) {
@@ -178,10 +182,10 @@ class StoreBenchmarkIT {
         }
 
         static void measure(int rounds, Properties out) {
-            MutableIntList concepts = present(PrimitiveData.get()::forEachConceptNid);
-            MutableIntList patterns = present(PrimitiveData.get()::forEachPatternNid);
-            MutableIntList semantics = present(PrimitiveData.get()::forEachSemanticNid);
-            MutableIntList stamps = present(PrimitiveData.get()::forEachStampNid);
+            MutableIntList concepts = present(EntityStore.current()::forEachConceptNid);
+            MutableIntList patterns = present(EntityStore.current()::forEachPatternNid);
+            MutableIntList semantics = present(EntityStore.current()::forEachSemanticNid);
+            MutableIntList stamps = present(EntityStore.current()::forEachStampNid);
             MutableIntList all = IntLists.mutable.empty();
             all.addAll(concepts);
             all.addAll(patterns);
@@ -200,27 +204,27 @@ class StoreBenchmarkIT {
             // The store: whole-store scans, the same nids as a list, single reads.
             operations.put("store.scan", () -> {
                 LongAdder count = new LongAdder();
-                PrimitiveData.get().forEach((bytes, nid) -> count.increment());
+                EntityStore.current().forEach((bytes, nid) -> count.increment());
                 return count.sum();
             });
             operations.put("store.scan.parallel", () -> {
                 LongAdder count = new LongAdder();
-                PrimitiveData.get().forEachParallel((bytes, nid) -> count.increment());
+                EntityStore.current().forEachParallel((bytes, nid) -> count.increment());
                 return count.sum();
             });
             operations.put("store.list.ordered", () -> {
                 LongAdder count = new LongAdder();
-                PrimitiveData.get().forEach(ordered, (bytes, nid) -> count.increment());
+                EntityStore.current().forEach(ordered, (bytes, nid) -> count.increment());
                 return count.sum();
             });
             operations.put("store.list.shuffled", () -> {
                 LongAdder count = new LongAdder();
-                PrimitiveData.get().forEach(shuffled, (bytes, nid) -> count.increment());
+                EntityStore.current().forEach(shuffled, (bytes, nid) -> count.increment());
                 return count.sum();
             });
             operations.put("store.list.parallel.shuffled", () -> {
                 LongAdder count = new LongAdder();
-                PrimitiveData.get().forEachParallel(shuffled, (bytes, nid) -> count.increment());
+                EntityStore.current().forEachParallel(shuffled, (bytes, nid) -> count.increment());
                 return count.sum();
             });
             operations.put("store.bytes.ordered", () -> readBytes(ordered));
@@ -231,26 +235,26 @@ class StoreBenchmarkIT {
             operations.put("store.semantics.of.pattern", () -> {
                 long count = 0;
                 for (int pattern : patterns.toArray()) {
-                    count += PrimitiveData.get().semanticNidsOfPattern(pattern).length;
+                    count += EntityStore.current().semanticNidsOfPattern(pattern).length;
                 }
                 return count;
             });
             operations.put("store.for.each.semantic.of.pattern", () -> {
                 LongAdder count = new LongAdder();
-                patterns.forEach(pattern -> PrimitiveData.get().forEachSemanticNidOfPattern(pattern, nid -> count.increment()));
+                patterns.forEach(pattern -> EntityStore.current().forEachSemanticNidOfPattern(pattern, nid -> count.increment()));
                 return count.sum();
             });
             operations.put("store.semantics.for.component.shuffled", () -> {
                 long count = 0;
                 for (int nid : componentsShuffled.toArray()) {
-                    count += PrimitiveData.get().semanticNidsForComponent(nid).length;
+                    count += EntityStore.current().semanticNidsForComponent(nid).length;
                 }
                 return count;
             });
             operations.put("store.descriptions.for.concept", () -> {
                 long count = 0;
                 for (int concept : concepts.toArray()) {
-                    count += PrimitiveData.get().semanticNidsForComponentOfPattern(concept, descriptionPattern).length;
+                    count += EntityStore.current().semanticNidsForComponentOfPattern(concept, descriptionPattern).length;
                 }
                 return count;
             });
@@ -286,6 +290,41 @@ class StoreBenchmarkIT {
                         semantic -> count.increment()));
                 return count.sum();
             });
+            operations.put("entities.semantics.of.pattern.stream", () -> {
+                long count = 0;
+                for (int pattern : patterns.toArray()) {
+                    count += entities.semanticsOfPattern(pattern).count();
+                }
+                return count;
+            });
+            operations.put("entities.descriptions.for.concept.stream", () -> {
+                long count = 0;
+                for (int concept : concepts.toArray()) {
+                    count += entities.semanticsForComponentOfPattern(concept, descriptionPattern).toList().size();
+                }
+                return count;
+            });
+            // A membership test: has the concept any description? Stops at the first.
+            operations.put("entities.has.description", () -> {
+                long count = 0;
+                for (int concept : concepts.toArray()) {
+                    if (entities.semanticsForComponentOfPattern(concept, descriptionPattern).findAny().isPresent()) {
+                        count++;
+                    }
+                }
+                return count;
+            });
+            operations.put("entities.every", () -> {
+                LongAdder count = new LongAdder();
+                entities.forEachEntity(entity -> count.increment());
+                return count.sum();
+            });
+            operations.put("entities.every.parallel", () -> {
+                LongAdder count = new LongAdder();
+                entities.forEachEntityParallel(entity -> count.increment());
+                return count.sum();
+            });
+            operations.put("entities.count", entities::countEntities);
             operations.put("entities.of.list.shuffled", () -> {
                 LongAdder count = new LongAdder();
                 entities.forEachEntity(shuffled, entity -> count.increment());
@@ -347,7 +386,7 @@ class StoreBenchmarkIT {
         private static long readBytes(ImmutableIntList nids) {
             long count = 0;
             for (int nid : nids.toArray()) {
-                if (PrimitiveData.get().getBytes(nid) != null) {
+                if (EntityStore.current().getBytes(nid) != null) {
                     count++;
                 }
             }

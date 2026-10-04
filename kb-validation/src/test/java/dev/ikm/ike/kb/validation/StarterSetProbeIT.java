@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.id.IntIdList;
 import dev.ikm.tinkar.common.id.IntIdSet;
 import dev.ikm.tinkar.common.id.IntIds;
@@ -117,7 +118,8 @@ class StarterSetProbeIT {
         // The entity-level contract against the store-level one
         for (String contract : List.of("concept.entities", "pattern.entities", "stamp.entities",
                 "semantics.of.pattern", "semantics.for.component", "semantics.for.component.of.pattern",
-                "entities.of.list", "store.for.each", "store.for.each.parallel")) {
+                "entities.of.list", "store.for.each", "store.for.each.parallel",
+                "entities.every", "entities.every.parallel", "entities.every.semantic", "entities.count")) {
             zero(checks, result, contract + ".differences", "entity service against the store: " + contract);
         }
         // Uncommitted stamps
@@ -230,7 +232,7 @@ class StarterSetProbeIT {
 
             MutableIntSet concepts = IntSets.mutable.empty().asSynchronized();
             MutableIntSet activeConcepts = IntSets.mutable.empty().asSynchronized();
-            PrimitiveData.get().forEachConceptNid(nid -> {
+            EntityStore.current().forEachConceptNid(nid -> {
                 if (EntityHandle.get(nid).isPresent()) {
                     concepts.add(nid);
                     Latest<EntityVersion> latest = view.latest(nid);
@@ -278,9 +280,9 @@ class StarterSetProbeIT {
             Count visibleOnMaster = new Count();
             // A store may call a forEach...Nid procedure from several threads at once.
             List<Integer> nids = Collections.synchronizedList(new ArrayList<>());
-            PrimitiveData.get().forEachConceptNid(nids::add);
-            PrimitiveData.get().forEachPatternNid(nids::add);
-            PrimitiveData.get().forEachSemanticNid(nids::add);
+            EntityStore.current().forEachConceptNid(nids::add);
+            EntityStore.current().forEachPatternNid(nids::add);
+            EntityStore.current().forEachSemanticNid(nids::add);
             for (int nid : nids) {
                 if (EntityHandle.get(nid).isAbsent()) {
                     continue;
@@ -380,7 +382,7 @@ class StarterSetProbeIT {
                 }
                 // Preferred descriptions per (language, type, dialect pattern), from the data.
                 Map<String, Integer> preferredCount = new HashMap<>();
-                for (int descriptionNid : PrimitiveData.get().semanticNidsForComponentOfPattern(nid, descriptionPattern)) {
+                for (int descriptionNid : EntityStore.current().semanticNidsForComponentOfPattern(nid, descriptionPattern)) {
                     Latest<SemanticEntityVersion> description = view.latest(descriptionNid);
                     if (description.isAbsent() || !description.get().active()) {
                         continue;
@@ -393,7 +395,7 @@ class StarterSetProbeIT {
                         continue;
                     }
                     boolean acceptable = false;
-                    for (int acceptabilityNid : PrimitiveData.get().semanticNidsForComponent(descriptionNid)) {
+                    for (int acceptabilityNid : EntityStore.current().semanticNidsForComponent(descriptionNid)) {
                         Latest<SemanticEntityVersion> acceptability = view.latest(acceptabilityNid);
                         if (acceptability.isAbsent() || !acceptability.get().active()) {
                             continue;
@@ -434,22 +436,25 @@ class StarterSetProbeIT {
         /** The entity service's enumerations against the store's, and the store's whole and list forms. */
         private static void contract(Properties out, MutableIntSet concepts) {
             EntityService entities = EntityService.get();
-            compare(out, "concept.entities", present(PrimitiveData.get()::forEachConceptNid),
+            compare(out, "concept.entities", present(EntityStore.current()::forEachConceptNid),
                     collect(consumer -> entities.forEachConceptEntity(e -> consumer.add(e.nid()))));
-            compare(out, "pattern.entities", present(PrimitiveData.get()::forEachPatternNid),
+            compare(out, "pattern.entities", present(EntityStore.current()::forEachPatternNid),
                     collect(consumer -> entities.forEachPatternEntity(e -> consumer.add(e.nid()))));
-            compare(out, "stamp.entities", present(PrimitiveData.get()::forEachStampNid),
+            compare(out, "stamp.entities", present(EntityStore.current()::forEachStampNid),
                     collect(consumer -> entities.forEachStampEntity(e -> consumer.add(e.nid()))));
 
             Count ofPattern = new Count();
-            PrimitiveData.get().forEachPatternNid(patternNid -> {
+            EntityStore.current().forEachPatternNid(patternNid -> {
                 try {
                     MutableIntSet viaEntities = IntSets.mutable.empty().asSynchronized();
                     entities.forEachSemanticOfPattern(patternNid, semantic -> viaEntities.add(semantic.nid()));
-                    MutableIntSet viaStore = IntSets.mutable.with(PrimitiveData.get().semanticNidsOfPattern(patternNid));
+                    MutableIntSet viaStore = IntSets.mutable.with(EntityStore.current().semanticNidsOfPattern(patternNid));
                     if (!viaEntities.equals(viaStore)) {
                         ofPattern.add(PrimitiveData.textWithNid(patternNid) + ": " + viaEntities.size()
                                 + " through the entity service, " + viaStore.size() + " from the store");
+                    }
+                    if (!viaStore.equals(nids(entities.semanticsOfPattern(patternNid)))) {
+                        ofPattern.add(PrimitiveData.textWithNid(patternNid) + ": the entity service's stream differs from the store");
                     }
                 } catch (RuntimeException e) {
                     ofPattern.add(PrimitiveData.textWithNid(patternNid) + ": " + e);
@@ -463,14 +468,17 @@ class StarterSetProbeIT {
             concepts.forEach(nid -> {
                 MutableIntSet viaEntities = IntSets.mutable.empty().asSynchronized();
                 entities.forEachSemanticForComponent(nid, semantic -> viaEntities.add(semantic.nid()));
-                if (!viaEntities.equals(IntSets.mutable.with(PrimitiveData.get().semanticNidsForComponent(nid)))) {
+                MutableIntSet viaStore = IntSets.mutable.with(EntityStore.current().semanticNidsForComponent(nid));
+                if (!viaEntities.equals(viaStore) || !viaStore.equals(nids(entities.semanticsForComponent(nid)))) {
                     forComponent.add(PrimitiveData.textWithNid(nid));
                 }
                 MutableIntSet ofPatternViaEntities = IntSets.mutable.empty().asSynchronized();
                 entities.forEachSemanticForComponentOfPattern(nid, descriptionPattern,
                         semantic -> ofPatternViaEntities.add(semantic.nid()));
-                if (!ofPatternViaEntities.equals(IntSets.mutable.with(
-                        PrimitiveData.get().semanticNidsForComponentOfPattern(nid, descriptionPattern)))) {
+                MutableIntSet ofPatternViaStore = IntSets.mutable.with(
+                        EntityStore.current().semanticNidsForComponentOfPattern(nid, descriptionPattern));
+                if (!ofPatternViaEntities.equals(ofPatternViaStore)
+                        || !ofPatternViaStore.equals(nids(entities.semanticsForComponentOfPattern(nid, descriptionPattern)))) {
                     forComponentOfPattern.add(PrimitiveData.textWithNid(nid));
                 }
             });
@@ -479,19 +487,40 @@ class StarterSetProbeIT {
 
             // Every entity, three ways: by kind, through the whole-store scan, and as a list.
             MutableIntSet byKind = IntSets.mutable.empty().asSynchronized();
-            byKind.addAll(present(PrimitiveData.get()::forEachConceptNid));
-            byKind.addAll(present(PrimitiveData.get()::forEachPatternNid));
-            byKind.addAll(present(PrimitiveData.get()::forEachSemanticNid));
-            byKind.addAll(present(PrimitiveData.get()::forEachStampNid));
+            byKind.addAll(present(EntityStore.current()::forEachConceptNid));
+            byKind.addAll(present(EntityStore.current()::forEachPatternNid));
+            byKind.addAll(present(EntityStore.current()::forEachSemanticNid));
+            byKind.addAll(present(EntityStore.current()::forEachStampNid));
             MutableIntSet scanned = IntSets.mutable.empty().asSynchronized();
-            PrimitiveData.get().forEach((bytes, nid) -> scanned.add(nid));
+            EntityStore.current().forEach((bytes, nid) -> scanned.add(nid));
             MutableIntSet scannedInParallel = IntSets.mutable.empty().asSynchronized();
-            PrimitiveData.get().forEachParallel((bytes, nid) -> scannedInParallel.add(nid));
+            EntityStore.current().forEachParallel((bytes, nid) -> scannedInParallel.add(nid));
             MutableIntSet listed = IntSets.mutable.empty().asSynchronized();
             entities.forEachEntity(byKind.toList().toImmutable(), entity -> listed.add(entity.nid()));
+            MutableIntSet everyEntity = IntSets.mutable.empty().asSynchronized();
+            entities.forEachEntity(entity -> everyEntity.add(entity.nid()));
+            MutableIntSet everyEntityInParallel = IntSets.mutable.empty().asSynchronized();
+            entities.forEachEntityParallel(entity -> everyEntityInParallel.add(entity.nid()));
+            MutableIntSet semanticsByKind = present(EntityStore.current()::forEachSemanticNid);
+            MutableIntSet everySemantic = IntSets.mutable.empty().asSynchronized();
+            entities.forEachSemanticEntity(semantic -> everySemantic.add(semantic.nid()));
             compare(out, "store.for.each.parallel", scanned, scannedInParallel);
             compare(out, "entities.of.list", byKind, listed);
             compare(out, "store.for.each", byKind, scanned);
+            compare(out, "entities.every", byKind, everyEntity);
+            compare(out, "entities.every.parallel", byKind, everyEntityInParallel);
+            compare(out, "entities.every.semantic", semanticsByKind, everySemantic);
+            Count counted = new Count();
+            if (entities.countEntities() != byKind.size()) {
+                counted.add("countEntities " + entities.countEntities() + ", by kind " + byKind.size());
+            }
+            counted.store(out, PROBE + "entities.count.differences");
+        }
+
+        private static MutableIntSet nids(java.util.stream.Stream<? extends dev.ikm.tinkar.entity.Entity<?>> entities) {
+            MutableIntSet nids = IntSets.mutable.empty();
+            entities.forEach(entity -> nids.add(entity.nid()));
+            return nids;
         }
 
         private interface NidSource {

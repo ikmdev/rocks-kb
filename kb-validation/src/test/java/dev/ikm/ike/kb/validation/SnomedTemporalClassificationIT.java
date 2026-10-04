@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.elk.snomed.SnomedIsa;
 import dev.ikm.tinkar.common.id.IntIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -185,7 +186,7 @@ class SnomedTemporalClassificationIT {
             }
             int path = TinkarTerm.DEVELOPMENT_PATH.nid();
             TreeSet<Long> times = new TreeSet<>();
-            PrimitiveData.get().forEachStampNid(nid -> {
+            EntityStore.current().forEachStampNid(nid -> {
                 StampEntity<?> stamp = EntityHandle.get(nid).expectStamp();
                 for (StampEntityVersion version : stamp.versions()) {
                     if (version.pathNid() == path && modules.contains(version.moduleNid())
@@ -219,7 +220,7 @@ class SnomedTemporalClassificationIT {
             // Read through the view's calculators as of the date
             AtomicLong active = new AtomicLong();
             AtomicLong described = new AtomicLong();
-            PrimitiveData.get().forEachConceptNid(nid -> {
+            EntityStore.current().forEachConceptNid(nid -> {
                 if (view.latestIsActive(nid)) {
                     active.incrementAndGet();
                     if (view.getDescriptionText(nid).isPresent()) {
