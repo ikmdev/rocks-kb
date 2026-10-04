@@ -84,7 +84,8 @@ class SnomedRoundTripIT {
     }
 
     @ParameterizedTest
-    @EnumSource(Provider.class)
+    // The persistent stores a SNOMED CT knowledge base is kept in.
+    @EnumSource(value = Provider.class, names = {"ROCKS", "SPINED_ARRAY"})
     void theKnowledgeBaseIsLoadedClassifiedQueriedExportedAndRestored(Provider provider) throws IOException {
         Path work = Path.of("target", "snomed-round-trip", provider.name().toLowerCase()).toAbsolutePath();
         deleteTree(work);

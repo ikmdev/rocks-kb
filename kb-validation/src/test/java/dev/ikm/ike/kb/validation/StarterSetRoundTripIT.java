@@ -45,11 +45,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The IKE starter set through a store's whole life, in each store provider: loaded from its
+ * The IKE starter set through a store's whole life, in each store provider (Rocks, spined
+ * array, MVStore, and the in-memory ephemeral store): loaded from its
  * protobuf export; read and searched; exported; and the export loaded into a fresh store,
  * which is read and searched again and must hold what the exported store held. Each store
  * lifetime is a stage in its own JVM ({@link ForkedJvm}), started as an application starts
- * one, through the service lifecycle.
+ * one, through the service lifecycle. An ephemeral store does not outlive its JVM, so it is
+ * loaded, read and exported in one lifetime and restored and read in a second.
  *
  * <p>Reading checks every description the default view's language coordinate covers: it has
  * a latest version under the default view, that version is active, and a search for its text
@@ -96,11 +98,17 @@ class StarterSetRoundTripIT {
         in.setProperty(KB_FILE, kb.toString());
         in.setProperty(EXPORT_FILE, work.resolve("export-pb.zip").toString());
 
-        Properties loadedResult = ForkedJvm.run(Load.class, in, Duration.ofMinutes(10));
-        Properties queried = ForkedJvm.run(Query.class, loadedResult, Duration.ofMinutes(10));
-        Properties exportedResult = ForkedJvm.run(Export.class, queried, Duration.ofMinutes(10));
-        Properties restoredResult = ForkedJvm.run(Restore.class, exportedResult, Duration.ofMinutes(10));
-        Properties result = ForkedJvm.run(RestoredQuery.class, restoredResult, Duration.ofMinutes(10));
+        Properties result;
+        if (provider.persistent) {
+            Properties loadedResult = ForkedJvm.run(Load.class, in, Duration.ofMinutes(10));
+            Properties queried = ForkedJvm.run(Query.class, loadedResult, Duration.ofMinutes(10));
+            Properties exportedResult = ForkedJvm.run(Export.class, queried, Duration.ofMinutes(10));
+            Properties restoredResult = ForkedJvm.run(Restore.class, exportedResult, Duration.ofMinutes(10));
+            result = ForkedJvm.run(RestoredQuery.class, restoredResult, Duration.ofMinutes(10));
+        } else {
+            Properties exportedResult = ForkedJvm.run(LoadQueryExport.class, in, Duration.ofMinutes(10));
+            result = ForkedJvm.run(RestoreAndQuery.class, exportedResult, Duration.ofMinutes(10));
+        }
 
         StoreDigest loaded = StoreDigest.load(result, LOADED);
         StoreDigest exported = StoreDigest.load(result, EXPORTED);
@@ -140,8 +148,9 @@ class StarterSetRoundTripIT {
         }
 
         // Export and restore: closing, reopening and a protobuf round trip lose nothing
-        checks.add(() -> assertEquals(List.of(), exported.differencesFrom(loaded),
-                "The store after it was closed and reopened, against the store as loaded"));
+        checks.add(() -> assertEquals(List.of(), exported.differencesFrom(loaded), provider.persistent
+                ? "The store after it was closed and reopened, against the store as loaded"
+                : "The store when it was exported, against the store as loaded"));
         checks.add(() -> assertEquals(exported.entities(), number(result, "export.count"), "Entities written to the export file"));
         checks.add(() -> assertEquals(List.of(), restored.differencesFrom(exported),
                 "The fresh store after loading the export, against the store that was exported"));
@@ -315,6 +324,30 @@ class StarterSetRoundTripIT {
         @Override
         String prefix() {
             return RESTORED_QUERY;
+        }
+    }
+
+    /** An ephemeral store does not outlive its JVM: loaded, read, searched and exported in one lifetime. */
+    static class LoadQueryExport extends StoreStage {
+        @Override
+        void work(Properties in, Properties out) throws Exception {
+            new Load().work(in, out);
+            new Query().work(in, out);
+            new Export().work(in, out);
+        }
+    }
+
+    /** The second lifetime of an ephemeral store: the export loaded, read and searched. */
+    static class RestoreAndQuery extends StoreStage {
+        @Override
+        String storeProperty() {
+            return RESTORED_STORE;
+        }
+
+        @Override
+        void work(Properties in, Properties out) throws Exception {
+            new Restore().work(in, out);
+            new RestoredQuery().work(in, out);
         }
     }
 
