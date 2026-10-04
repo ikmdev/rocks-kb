@@ -25,6 +25,10 @@ abstract class StoreStage implements ForkedJvm.Stage {
 
     abstract void work(Properties in, Properties out) throws Exception;
 
+    /** Sets the service options this stage runs with, after the caches are cleared and before the store opens. */
+    void configure(Properties in) {
+    }
+
     @Override
     public final void run(Properties in, Properties out) throws Exception {
         out.putAll(in);
@@ -35,6 +39,7 @@ abstract class StoreStage implements ForkedJvm.Stage {
         }
         CachingService.clearAll();
         ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, store);
+        configure(in);
         PrimitiveData.selectControllerByName(provider.controllerName);
         long start = System.currentTimeMillis();
         PrimitiveData.start();

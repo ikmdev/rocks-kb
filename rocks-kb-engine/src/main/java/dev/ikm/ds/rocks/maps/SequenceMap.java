@@ -217,8 +217,9 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     }
 
     public SpliteratorForEntityKeys allEntityLongKeySpliterator() {
+    // Every pattern sequence, the pattern-of-patterns included: its elements are the pattern
+    // entities themselves, which a scan of every entity must visit.
     Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
-                .filter(entry -> entry.getKey() != patternPatternSequence()) // Exclude the meta-entry
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get()))
                 .toList();

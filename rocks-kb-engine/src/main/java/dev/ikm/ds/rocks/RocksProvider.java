@@ -20,6 +20,7 @@ import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
 import dev.ikm.tinkar.common.service.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
+import dev.ikm.tinkar.terms.EntityProxy;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
 import org.eclipse.collections.api.factory.Lists;
@@ -797,8 +798,26 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         return getSearchService().recreateIndex();
     }
 
+    /**
+     * Visits the semantics of a pattern. The concept, stamp and pattern-of-patterns bindings key
+     * concepts, stamps and patterns under their sequences, not semantics, so they have none here,
+     * as in every other provider.
+     *
+     * @throws IllegalStateException if the nid is not a pattern
+     */
     @Override
     public void forEachSemanticNidOfPattern(int patternNid, IntProcedure procedure) {
+        if (patternNid == EntityBinding.Concept.pattern().nid()
+                || patternNid == EntityBinding.Stamp.pattern().nid()
+                || patternNid == EntityBinding.Pattern.pattern().nid()) {
+            return;
+        }
+        EntityHandle.get(patternNid).expectPattern("Trying to iterate elements for entity that is not a pattern: ");
+        forEachElementOfPattern(patternNid, procedure);
+    }
+
+    /** Visits every element keyed under a pattern's sequence, whatever kind of entity it is. */
+    private void forEachElementOfPattern(int patternNid, IntProcedure procedure) {
         int patternSequence = (int) NidLayout.active().decodeElementSequence(patternNid);
         LongSpliteratorOfPattern spliteratorOfPattern = this.sequenceMap.spliteratorOfPattern(patternSequence);
         spliteratorOfPattern.forEachRemaining((LongConsumer) longKey -> procedure.accept(NidLayout.active().nidForLongKey(longKey)));
@@ -813,28 +832,52 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                 dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence(), counterValue);
         sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> {
             int nid = NidLayout.active().nidForLongKey(longKey);
-            visitedCount.incrementAndGet();
-            procedure.accept(nid);
+            // The binding patterns hold a sequence here whether or not a pattern was written
+            // for them; a pattern no entity stands behind is not a pattern of this store.
+            if (getBytes(nid) != null) {
+                visitedCount.incrementAndGet();
+                procedure.accept(nid);
+            }
         });
         LOG.debug("forEachPatternNid: visited {} pattern nid(s)", visitedCount.get());
     }
 
     @Override
     public void forEachConceptNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern(EntityBinding.Concept.pattern().nid(), procedure);
+        forEachElementOfBindingPattern(EntityBinding.Concept.pattern(), procedure);
     }
 
     @Override
     public void forEachStampNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern(EntityBinding.Stamp.pattern().nid(), procedure);
+        forEachElementOfBindingPattern(EntityBinding.Stamp.pattern(), procedure);
+    }
+
+    /**
+     * Visits the elements keyed under a binding pattern. A store nothing has been written to
+     * has no key for the pattern yet, and so no elements, rather than a nid to fail to find.
+     */
+    private void forEachElementOfBindingPattern(EntityProxy.Pattern bindingPattern, IntProcedure procedure) {
+        bindingPatternKey(bindingPattern).ifPresent(patternKey -> forEachElementOfPattern(patternKey.nid(), procedure));
+    }
+
+    private Optional<EntityKey> bindingPatternKey(EntityProxy.Pattern bindingPattern) {
+        for (UUID uuid : bindingPattern.asUuidArray()) {
+            Optional<EntityKey> key = getEntityKey(uuid);
+            if (key.isPresent()) {
+                return key;
+            }
+        }
+        return Optional.empty();
     }
 
     @Override
     public void forEachSemanticNid(IntProcedure procedure) {
         BitSet excludedPatternSequences = new BitSet();
-        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Concept.pattern().nid()));
-        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Stamp.pattern().nid()));
-        excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(EntityBinding.Pattern.pattern().nid()));
+        for (EntityProxy.Pattern bindingPattern : List.of(EntityBinding.Concept.pattern(),
+                EntityBinding.Stamp.pattern(), EntityBinding.Pattern.pattern())) {
+            bindingPatternKey(bindingPattern).ifPresent(key ->
+                    excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(key.nid())));
+        }
 
         ImmutableList<SpliteratorForLongKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
 

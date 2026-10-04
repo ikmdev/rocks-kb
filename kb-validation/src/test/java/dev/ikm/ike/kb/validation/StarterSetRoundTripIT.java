@@ -35,7 +35,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 import java.util.zip.ZipFile;
@@ -72,9 +71,6 @@ class StarterSetRoundTripIT {
     private static final String RESTORED = "restored.";
     private static final String QUERY = "query.";
     private static final String RESTORED_QUERY = "restored.query.";
-
-    /** At most this many examples of a failure are carried back to the test. */
-    private static final int EXAMPLES = 20;
 
     static Path starterSet() {
         Path kb = Path.of(System.getProperty("starter.set.data.directory", "target/data"))
@@ -348,34 +344,6 @@ class StarterSetRoundTripIT {
         void work(Properties in, Properties out) throws Exception {
             new Restore().work(in, out);
             new RestoredQuery().work(in, out);
-        }
-    }
-
-    /** A count, with the first few examples of what it counted. */
-    private static final class Count {
-        private final AtomicLong count = new AtomicLong();
-        private final List<String> examples = new ArrayList<>();
-
-        void add() {
-            count.incrementAndGet();
-        }
-
-        void add(String example) {
-            count.incrementAndGet();
-            synchronized (examples) {
-                if (examples.size() < EXAMPLES) {
-                    examples.add(example);
-                }
-            }
-        }
-
-        void store(Properties out, String key) {
-            out.setProperty(key, Long.toString(count.get()));
-            synchronized (examples) {
-                if (!examples.isEmpty()) {
-                    out.setProperty(key + ".examples", String.join("; ", examples));
-                }
-            }
         }
     }
 }
