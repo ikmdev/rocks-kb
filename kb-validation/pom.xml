@@ -12,7 +12,9 @@
         knowledge base loaded into each store provider, classified, queried, exported and
         restored; and classified at each of its release dates against a recorded reference
         and against SNOMED International's inferred form (IKE-Network/ike-issues#1210).
-        Tests only, tagged "snomed"; they run with -Psnomed.</description>
+        Tests only, tagged "snomed"; they run with -Psnomed. The IKE starter set's round trip
+        (loaded, read, searched, exported, restored) is tagged "starter-set" and runs with
+        -Pstarter-set; one of the two profiles at a time.</description>
 
     <properties>
         <!-- The knowledge base the tests start from: a protobuf export, so it is independent
@@ -24,7 +26,10 @@
              used, for SNOMED's own classification at each release date. -->
         <snomedct-origin.version>snomedct-international-20250801T120000Z+1.0.0-SNAPSHOT</snomedct-origin.version>
         <snomed.data.directory>${project.build.directory}/data</snomed.data.directory>
-        <test.excludedGroups>snomed</test.excludedGroups>
+        <!-- The IKE starter set the starter-set round trip starts from, from starter-data-ws. -->
+        <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
+        <starter.set.data.directory>${project.build.directory}/data</starter.set.data.directory>
+        <test.excludedGroups>snomed,starter-set</test.excludedGroups>
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 
@@ -184,6 +189,7 @@
                     <argLine>@{failsafeArgLine} --enable-preview -Xmx24g</argLine>
                     <systemPropertyVariables>
                         <snomed.data.directory>${snomed.data.directory}</snomed.data.directory>
+                        <starter.set.data.directory>${starter.set.data.directory}</starter.set.data.directory>
                     </systemPropertyVariables>
                 </configuration>
                 <executions>
@@ -205,7 +211,7 @@
         <profile>
             <id>snomed</id>
             <properties>
-                <test.excludedGroups/>
+                <test.excludedGroups>starter-set</test.excludedGroups>
             </properties>
             <build>
                 <plugins>
@@ -251,6 +257,45 @@
                                         </artifactItem>
                                     </artifactItems>
                                     <outputDirectory>${snomed.data.directory}/rf2</outputDirectory>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!-- Runs the tests tagged "starter-set": fetches the IKE starter set, which
+             starter-data-ws builds and installs, and lets failsafe run them. -->
+        <profile>
+            <id>starter-set</id>
+            <properties>
+                <test.excludedGroups>snomed</test.excludedGroups>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>ike-starter-set</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>copy</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>network.ike.foundation</groupId>
+                                            <artifactId>ike-starter-set</artifactId>
+                                            <version>${ike-starter-set.version}</version>
+                                            <classifier>reasoned-pb</classifier>
+                                            <type>zip</type>
+                                            <destFileName>ike-starter-set-reasoned-pb.zip</destFileName>
+                                        </artifactItem>
+                                    </artifactItems>
+                                    <outputDirectory>${starter.set.data.directory}</outputDirectory>
+                                    <overWriteIfNewer>true</overWriteIfNewer>
                                 </configuration>
                             </execution>
                         </executions>
