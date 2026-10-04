@@ -5,7 +5,7 @@ import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.maps.SequenceMap;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
-import dev.ikm.tinkar.entity.Entity;
+import dev.ikm.tinkar.entity.EntityHandle;
 
 import java.util.Spliterator;
 
@@ -29,6 +29,6 @@ public interface LongSpliteratorOfPattern extends Spliterator.OfLong {
     }
 
     default PublicId publicIdForPattern() {
-        return Entity.getFast(NidLayout.active().nidForLongKey(entityKeyForPattern().longKey()));
+        return EntityHandle.get(NidLayout.active().nidForLongKey(entityKeyForPattern().longKey())).expectPattern().publicId();
     }
 }

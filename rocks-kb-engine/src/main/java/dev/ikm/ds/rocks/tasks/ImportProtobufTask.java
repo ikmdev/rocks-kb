@@ -224,7 +224,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
             patternUuids.forEach(patternUuid -> {
                 int nid = provider.nidForUuids(patternUuid);
                 EntityKey entityKey = provider.getEntityKey(patternUuid).get();
-                PatternEntity patternEntity = EntityService.get().getEntityFast(nid);
+                PatternEntity patternEntity = EntityHandle.get(nid).asPattern().orElse(null);
                 StampCoordinate stampCoordinate = Coordinates.Stamp.DevelopmentLatest();
 //                LanguageCalculatorWithCache languageCalculator = new LanguageCalculatorWithCache(stampCoordinate.toStampCoordinateRecord(),
 //                        Lists.immutable.of(Coordinates.Language.UsEnglishFullyQualifiedName(), Coordinates.Language.AnyLanguageRegularName()));

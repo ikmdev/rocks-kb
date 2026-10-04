@@ -4,7 +4,7 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.export.ExportEntitiesToProtobufFile;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
@@ -208,7 +208,7 @@ class SnomedRoundTripIT {
                 // A provider may enumerate a nid it allocated for a concept the knowledge base
                 // does not hold (a Rocks KB does, when code asks for the nid of a term the KB
                 // predates); only concepts with an entity are compared across providers.
-                if (EntityService.get().getEntityFast(nid) == null) {
+                if (EntityHandle.get(nid).isAbsent()) {
                     withoutEntity.incrementAndGet();
                     return;
                 }
