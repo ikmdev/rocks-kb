@@ -119,7 +119,8 @@ class StarterSetProbeIT {
         for (String contract : List.of("concept.entities", "pattern.entities", "stamp.entities",
                 "semantics.of.pattern", "semantics.for.component", "semantics.for.component.of.pattern",
                 "entities.of.list", "store.for.each", "store.for.each.parallel",
-                "entities.every", "entities.every.parallel", "entities.every.semantic", "entities.count")) {
+                "entities.every", "entities.every.parallel", "entities.every.semantic", "entities.count",
+                "index.semantic.not.listed.for.component", "index.of.pattern")) {
             zero(checks, result, contract + ".differences", "entity service against the store: " + contract);
         }
         // Uncommitted stamps
@@ -484,6 +485,28 @@ class StarterSetProbeIT {
             });
             forComponent.store(out, PROBE + "semantics.for.component.differences");
             forComponentOfPattern.store(out, PROBE + "semantics.for.component.of.pattern.differences");
+
+            // The indexes against the semantics themselves, within one store: every semantic is
+            // listed for the component it references, and listing one pattern's agrees with
+            // listing them all and keeping that pattern's.
+            Count unindexed = new Count();
+            Count ofPatternDisagrees = new Count();
+            entities.forEachSemanticEntity(semantic -> {
+                int component = semantic.referencedComponentNid();
+                MutableIntSet forComponentNids = IntSets.mutable.with(EntityStore.current().semanticNidsForComponent(component));
+                if (!forComponentNids.contains(semantic.nid())) {
+                    unindexed.add(PrimitiveData.textWithNid(semantic.nid()));
+                }
+                MutableIntSet ofItsPattern = IntSets.mutable.with(
+                        EntityStore.current().semanticNidsForComponentOfPattern(component, semantic.patternNid()));
+                MutableIntSet filtered = forComponentNids.select(nid ->
+                        EntityHandle.get(nid).asSemantic().map(other -> other.patternNid() == semantic.patternNid()).orElse(false));
+                if (!ofItsPattern.equals(filtered)) {
+                    ofPatternDisagrees.add(PrimitiveData.textWithNid(semantic.nid()));
+                }
+            });
+            unindexed.store(out, PROBE + "index.semantic.not.listed.for.component.differences");
+            ofPatternDisagrees.store(out, PROBE + "index.of.pattern.differences");
 
             // Every entity, three ways: by kind, through the whole-store scan, and as a list.
             MutableIntSet byKind = IntSets.mutable.empty().asSynchronized();
