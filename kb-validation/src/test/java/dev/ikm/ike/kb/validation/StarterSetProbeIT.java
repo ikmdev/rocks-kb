@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import network.ike.foundation.ike.bindings.IkeTerms;
 import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.id.IntIdList;
@@ -29,7 +30,6 @@ import dev.ikm.tinkar.entity.StampRecord;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.State;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.eclipse.collections.api.factory.primitive.IntSets;
 import org.eclipse.collections.api.set.primitive.MutableIntSet;
 import org.junit.jupiter.api.Tag;
@@ -603,7 +603,7 @@ class StarterSetProbeIT {
 
         private static StampRecord uncommittedStamp() {
             StampRecord stamp = StampRecord.make(UUID.randomUUID(), State.ACTIVE, Long.MAX_VALUE,
-                    KernelTerm.USER.publicId(), TinkarTerm.DEVELOPMENT_MODULE.publicId(), KernelTerm.DEVELOPMENT_PATH.publicId());
+                    KernelTerm.USER.publicId(), IkeTerms.DEVELOPMENT_MODULE.publicId(), KernelTerm.DEVELOPMENT_PATH.publicId());
             EntityService.get().putEntity(stamp);
             return stamp;
         }
