@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.id.IntIdList;
 import dev.ikm.tinkar.common.id.IntIdSet;
@@ -351,7 +352,7 @@ class StarterSetProbeIT {
                                   ViewCalculator gb, MutableIntSet activeConcepts, LanguageCoordinateRecord usFullyQualified) {
             int descriptionPattern = usFullyQualified.descriptionPatternPreferenceNidList().get(0);
             int fullyQualifiedType = usFullyQualified.descriptionTypePreferenceNidList().get(0);
-            int preferred = TinkarTerm.PREFERRED.nid();
+            int preferred = KernelTerm.PREFERRED.nid();
 
             Count withoutFullyQualifiedName = new Count();
             Count withoutRegularName = new Count();
@@ -602,7 +603,7 @@ class StarterSetProbeIT {
 
         private static StampRecord uncommittedStamp() {
             StampRecord stamp = StampRecord.make(UUID.randomUUID(), State.ACTIVE, Long.MAX_VALUE,
-                    TinkarTerm.USER.publicId(), TinkarTerm.DEVELOPMENT_MODULE.publicId(), TinkarTerm.DEVELOPMENT_PATH.publicId());
+                    KernelTerm.USER.publicId(), TinkarTerm.DEVELOPMENT_MODULE.publicId(), KernelTerm.DEVELOPMENT_PATH.publicId());
             EntityService.get().putEntity(stamp);
             return stamp;
         }

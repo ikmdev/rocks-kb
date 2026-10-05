@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
@@ -12,7 +13,6 @@ import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.fixtures.StoreDigest;
 import dev.ikm.tinkar.reasoner.service.ClassifierResults;
 import dev.ikm.tinkar.reasoner.service.ReasonerService;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -219,7 +219,7 @@ class SnomedRoundTripIT {
                     withoutDescription.incrementAndGet();
                 }
             });
-            var descendants = view.navigationCalculator().descendentsOf(TinkarTerm.ROOT_VERTEX.nid());
+            var descendants = view.navigationCalculator().descendentsOf(KernelTerm.ROOT_VERTEX.nid());
             AtomicLong withoutParents = new AtomicLong();
             descendants.intStream().forEach(nid -> {
                 if (view.navigationCalculator().parentsOf(nid).isEmpty()) {

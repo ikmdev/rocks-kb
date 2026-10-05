@@ -15,6 +15,7 @@
  */
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Coordinates;
@@ -24,7 +25,6 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculatorWithCache;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.eclipse.collections.api.factory.primitive.IntLists;
 import org.eclipse.collections.api.list.primitive.ImmutableIntList;
 import org.eclipse.collections.api.list.primitive.MutableIntList;
@@ -194,7 +194,7 @@ class StoreBenchmarkIT {
             ImmutableIntList ordered = all.toSortedList().toImmutable();
             ImmutableIntList shuffled = shuffle(ordered);
             ImmutableIntList componentsShuffled = shuffle(IntLists.immutable.withAll(concepts).newWithAll(semantics));
-            int descriptionPattern = TinkarTerm.DESCRIPTION_PATTERN.nid();
+            int descriptionPattern = KernelTerm.DESCRIPTION_PATTERN.nid();
             ViewCalculator view = ViewCalculatorWithCache.getCalculator(ViewCoordinateRecord.make(
                     Coordinates.Stamp.DevelopmentLatest(), Coordinates.Language.UsEnglishRegularName(),
                     Coordinates.Logic.ElPlusPlus(), Coordinates.Navigation.inferred(), Coordinates.Edit.Default()));

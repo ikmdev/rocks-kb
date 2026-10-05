@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.elk.snomed.SnomedIsa;
 import dev.ikm.tinkar.common.id.IntIds;
@@ -18,7 +19,6 @@ import dev.ikm.tinkar.entity.StampEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.reasoner.service.ReasonerService;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -184,7 +184,7 @@ class SnomedTemporalClassificationIT {
                 assertTrue(PrimitiveData.get().hasUuid(uuid), "The knowledge base has no module " + sctid);
                 modules.add(PrimitiveData.nid(uuid));
             }
-            int path = TinkarTerm.DEVELOPMENT_PATH.nid();
+            int path = KernelTerm.DEVELOPMENT_PATH.nid();
             TreeSet<Long> times = new TreeSet<>();
             EntityStore.current().forEachStampNid(nid -> {
                 StampEntity<?> stamp = EntityHandle.get(nid).expectStamp();
@@ -210,7 +210,7 @@ class SnomedTemporalClassificationIT {
             String time = in.getProperty(TIME);
             String date = date(time);
             String prefix = "observed.at." + date + ".";
-            StampPositionRecord position = StampPositionRecord.make(Long.parseLong(time), TinkarTerm.DEVELOPMENT_PATH.nid());
+            StampPositionRecord position = StampPositionRecord.make(Long.parseLong(time), KernelTerm.DEVELOPMENT_PATH.nid());
             StampCoordinateRecord stamps = StampCoordinateRecord.make(StateSet.ACTIVE, position, IntIds.set.empty());
             ViewCoordinateRecord coordinate = ViewCoordinateRecord.make(stamps,
                     Coordinates.Language.UsEnglishRegularName(), Coordinates.Logic.ElPlusPlus(),
