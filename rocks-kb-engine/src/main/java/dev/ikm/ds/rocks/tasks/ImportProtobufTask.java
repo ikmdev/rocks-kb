@@ -1,5 +1,6 @@
 package dev.ikm.ds.rocks.tasks;
 
+import dev.ikm.tinkar.entity.load.IdentityIndex;
 import dev.ikm.tinkar.common.util.thread.StructuredScopes;
 import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.tinkar.common.id.EntityKey;
@@ -101,7 +102,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
             ZipEntry zipEntry;
             while ((zipEntry = zis.getNextEntry()) != null) {
                 updateProgress(countingIn.getBytesRead(), this.importFile.length() * 2);
-                if (!zipEntry.getName().equals(MANIFEST_RELPATH)) {
+                if (!IdentityIndex.isMetadata(zipEntry.getName())) {
                     Semaphore permits = new Semaphore(Runtime.getRuntime().availableProcessors() * 8);
 
                     try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
@@ -172,7 +173,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
             ZipEntry zipEntry;
             final AtomicInteger errorCount = new AtomicInteger();
             while ((zipEntry = zis.getNextEntry()) != null) {
-                if (zipEntry.getName().equals(MANIFEST_RELPATH)) {
+                if (IdentityIndex.isMetadata(zipEntry.getName())) {
                     continue;
                 }
                 try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
