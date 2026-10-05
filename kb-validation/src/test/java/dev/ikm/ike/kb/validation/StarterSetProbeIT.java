@@ -595,9 +595,9 @@ class StarterSetProbeIT {
                     ? "no version left" : Boolean.toString(after.state() == State.CANCELED));
         }
 
-        /** Writes an uncommitted stamp outside any transaction and returns its identity. */
+        /** Writes an uncommitted stamp outside any transaction and returns its identity, its one UUID. */
         static UUID leaveUncommittedStamp() {
-            return uncommittedStamp().publicId().asUuidArray()[0];
+            return uncommittedStamp().publicId().leastUuid();
         }
 
         private static StampRecord uncommittedStamp() {

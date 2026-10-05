@@ -25,7 +25,8 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public static final int FIRST_ELEMENT_SEQUENCE_OF_PATTERN = 1;
     private static int nextPatternElementSequence = FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
 
-    public static final UUID PATTERN_PATTERN_UUID = EntityBinding.Pattern.pattern().asUuidArray()[0];
+    /** The UUID of the pattern-of-patterns ({@link EntityBinding.Pattern#pattern()}, made from this one UUID). */
+    public static final UUID PATTERN_PATTERN_UUID = EntityBinding.Pattern.pattern().leastUuid();
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
 
     /**
