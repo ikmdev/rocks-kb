@@ -342,7 +342,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
 
     private long analyzeManifest() {
         long expectedImports = -1;
-        Map<PublicId, String> manifestEntryData = new HashMap<>();
+        List<Map.Entry<PublicId, String>> manifestEntryData = new ArrayList<>(); // a public id is never a hash key
 
         // Read Manifest from Zip
         try (ZipInputStream zis = new ZipInputStream(new FileInputStream(importFile))) {
@@ -355,7 +355,7 @@ public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.s
                     manifest.getEntries().keySet().forEach((publicIdKey) -> {
                         PublicId publicId = PublicIds.of(publicIdKey.split(","));
                         String description = manifest.getEntries().get(publicIdKey).getValue("Description");
-                        manifestEntryData.put(publicId, description);
+                        manifestEntryData.add(Map.entry(publicId, description));
                     });
                 }
                 zis.closeEntry();

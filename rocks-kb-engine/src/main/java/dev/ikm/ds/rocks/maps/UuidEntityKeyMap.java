@@ -1,6 +1,7 @@
 package dev.ikm.ds.rocks.maps;
 
 
+import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
@@ -286,6 +287,7 @@ public class UuidEntityKeyMap
         }
         uuidLockTable.lock(id);
         try {
+            adviseIfSeveralComponents(uuids);
             EntityKey entityKey = existingKey(uuids);
             if (entityKey == null) {
                 entityKey = allocator.get();
@@ -298,6 +300,20 @@ public class UuidEntityKeyMap
             return entityKey;
         } finally {
             uuidLockTable.unlock(id);
+        }
+    }
+
+    /** Reports a public id whose UUIDs belong to more than one existing component. */
+    private void adviseIfSeveralComponents(UUID[] uuids) {
+        if (uuids.length < 2) {
+            return;
+        }
+        java.util.TreeSet<Integer> nids = new java.util.TreeSet<>();
+        for (UUID uuid : uuids) {
+            getEntityKey(uuid).ifPresent(key -> nids.add(key.nid()));
+        }
+        if (nids.size() > 1) {
+            IdentityAdvisories.componentsShareUuids(java.util.List.of(uuids), nids);
         }
     }
 

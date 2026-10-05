@@ -526,7 +526,21 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                     scopedBound,
                     scopedBound ? SCOPED_PATTERN_PUBLICID_FOR_NID.get() : null);
         }
-        for (UUID uuid: uuids) {
+        // When more than one is known, the least known UUID decides, whatever order the caller
+        // listed them in; UUIDs known for different components are reported.
+        UUID[] ordered = uuids;
+        if (uuids.length > 1) {
+            ordered = uuids.clone();
+            Arrays.sort(ordered);
+            java.util.TreeSet<Integer> nids = new java.util.TreeSet<>();
+            for (UUID uuid : ordered) {
+                uuidEntityKeyMap.getEntityKey(uuid).ifPresent(key -> nids.add(key.nid()));
+            }
+            if (nids.size() > 1) {
+                IdentityAdvisories.componentsShareUuids(List.of(ordered), nids);
+            }
+        }
+        for (UUID uuid: ordered) {
             Optional<EntityKey> optionalKey = uuidEntityKeyMap.getEntityKey(uuid);
             if (optionalKey.isPresent()) {
                 int nid = optionalKey.get().nid();
