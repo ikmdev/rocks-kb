@@ -136,6 +136,16 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>tinkar-schema</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
             <artifactId>entity-provider</artifactId>
             <scope>test</scope>
         </dependency>
