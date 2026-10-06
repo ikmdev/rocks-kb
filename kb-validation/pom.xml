@@ -31,6 +31,8 @@
         <starter.set.data.directory>${project.build.directory}/data</starter.set.data.directory>
         <test.excludedGroups>snomed,starter-set</test.excludedGroups>
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- Tests only: no jar is made, so there is nothing to install either. -->
+        <maven.install.skip>true</maven.install.skip>
     </properties>
 
     <dependencies>
@@ -203,6 +205,13 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <skipIfEmpty>true</skipIfEmpty>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>

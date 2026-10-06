@@ -53,8 +53,6 @@
         <subproject>rocks-bench</subproject>
         <subproject>rocks-kb-engine</subproject>
         <subproject>kb-validation</subproject>
-        <subproject>rocks-komet-fx</subproject>
-        <subproject>rocks-maven-plugin</subproject>
     </subprojects>
 
 
