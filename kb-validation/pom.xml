@@ -221,8 +221,10 @@
                     <runOrder>alphabetical</runOrder>
                     <!-- Each stage runs in its own JVM (ForkedJvm), which inherits these
                          options; a SNOMED CT store and SNOMED's full inferred history
-                         need the heap. -->
-                    <argLine>@{failsafeArgLine} --enable-preview -Xmx24g</argLine>
+                         need the heap. protobuf-java uses sun.misc.Unsafe, which the
+                         JVM warns about unless memory access is allowed, as every other
+                         test JVM in the workspace allows it. -->
+                    <argLine>@{failsafeArgLine} --enable-preview -Xmx24g --sun-misc-unsafe-memory-access=allow</argLine>
                     <systemPropertyVariables>
                         <snomed.data.directory>${snomed.data.directory}</snomed.data.directory>
                         <starter.set.data.directory>${starter.set.data.directory}</starter.set.data.directory>
