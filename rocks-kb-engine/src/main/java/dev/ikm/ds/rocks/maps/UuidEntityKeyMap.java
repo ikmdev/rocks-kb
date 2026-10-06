@@ -5,8 +5,8 @@ import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
-import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +62,7 @@ public class UuidEntityKeyMap
 
     private enum TraceLevel {
         NONE,
+        /** A watched component: see {@link LoadEntitiesFromProtobufFile}'s watch list. */
         INFO,
         DEBUG
     }
@@ -240,19 +241,15 @@ public class UuidEntityKeyMap
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
-        TraceLevel traceLevel = TraceLevel.NONE;
-        if (ImportProtobufTask.SCOPED_WATCH_LIST.isBound()) {
-            Set<UUID> watchList = ImportProtobufTask.SCOPED_WATCH_LIST.get();
-            Set<UUID> values = patternId.asUuidList().toSet();
-            values.addAll(entityId.asUuidList().toSet());
-
-            if (watchList.stream().anyMatch(values::contains)) {
-                LOG.info("Watch in public id found: patternId {} and entityId {} found", patternId, entityId);
+        TraceLevel traceLevel = LOG.isDebugEnabled() ? TraceLevel.DEBUG : TraceLevel.NONE;
+        // An import's watch list (-Dtinkar.import.watch) raises its components' allocation trace to INFO.
+        if (LoadEntitiesFromProtobufFile.SCOPED_WATCH_LIST.isBound()) {
+            Set<UUID> watchList = LoadEntitiesFromProtobufFile.SCOPED_WATCH_LIST.get();
+            if (!watchList.isEmpty() && (patternId.asUuidList().anySatisfy(watchList::contains)
+                    || entityId.asUuidList().anySatisfy(watchList::contains))) {
+                LOG.info("Watch in public id found: patternId {} and entityId {}", patternId, entityId);
                 traceLevel = TraceLevel.INFO;
             }
-        }
-        if (traceLevel == TraceLevel.NONE && LOG.isDebugEnabled()) {
-            traceLevel = TraceLevel.DEBUG;
         }
 
         EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId)
