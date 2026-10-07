@@ -76,10 +76,10 @@ public class UuidEntityKeyMap
     }
 
     // TODO: Temp, only checks for existence of key in memory.
-    public ImmutableList<UUID> getUuids(long longKey) {
+    public ImmutableList<UUID> getUuids(long rocksKey) {
         MutableList<UUID> matchingUuids = Lists.mutable.empty();
         for (Map.Entry<UUID, EntityKey> entry : uuidEntityKeyMap.entrySet()) {
-            if (entry.getValue().longKey() == longKey) {
+            if (entry.getValue().rocksKey() == rocksKey) {
                 matchingUuids.add(entry.getKey());
             }
         }

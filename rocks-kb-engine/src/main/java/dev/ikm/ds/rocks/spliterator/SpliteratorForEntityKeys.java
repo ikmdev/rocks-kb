@@ -12,15 +12,15 @@ import java.util.function.LongConsumer;
 public class SpliteratorForEntityKeys implements Spliterator.OfLong {
 
     // The spliterator we are currently iterating
-    private SpliteratorForLongKeyOfPattern current;
+    private SpliteratorForRocksKeyOfPattern current;
 
     // Remaining per-pattern spliterators to be iterated after 'current', sorted by ascending patternSequence
-    private final Deque<SpliteratorForLongKeyOfPattern> remaining;
+    private final Deque<SpliteratorForRocksKeyOfPattern> remaining;
 
-    public SpliteratorForEntityKeys(Collection<SpliteratorForLongKeyOfPattern> perPatternSpliterators) {
-        List<SpliteratorForLongKeyOfPattern> list = new ArrayList<>();
+    public SpliteratorForEntityKeys(Collection<SpliteratorForRocksKeyOfPattern> perPatternSpliterators) {
+        List<SpliteratorForRocksKeyOfPattern> list = new ArrayList<>();
         if (perPatternSpliterators != null) {
-            for (SpliteratorForLongKeyOfPattern s : perPatternSpliterators) {
+            for (SpliteratorForRocksKeyOfPattern s : perPatternSpliterators) {
                 if (s != null) list.add(s);
             }
         }
@@ -82,7 +82,7 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
             current.forEachRemaining(action);
             current = null;
         }
-        SpliteratorForLongKeyOfPattern s;
+        SpliteratorForRocksKeyOfPattern s;
         while ((s = remaining.pollFirst()) != null) {
             s.forEachRemaining(action);
         }
@@ -96,7 +96,7 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
             if (size == Long.MAX_VALUE) return Long.MAX_VALUE;
             total = size;
         }
-        for (SpliteratorForLongKeyOfPattern s : remaining) {
+        for (SpliteratorForRocksKeyOfPattern s : remaining) {
             long size = s.estimateSize();
             if (size == Long.MAX_VALUE) return Long.MAX_VALUE;
             long room = Long.MAX_VALUE - total; // saturating add
@@ -115,7 +115,7 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
             ch = current.characteristics();
             initialized = true;
         }
-        for (SpliteratorForLongKeyOfPattern s : remaining) {
+        for (SpliteratorForRocksKeyOfPattern s : remaining) {
             int sc = s.characteristics();
             ch = initialized ? (ch & sc) : sc;
             initialized = true;
@@ -134,7 +134,7 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
 
     @Override
     public Comparator<? super Long> getComparator() {
-        // Natural order of long keys (ascending).
+        // Natural order of rocks keys (ascending).
         return null;
     }
 
@@ -149,7 +149,7 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
 
         // Remaining spliterators (compact preview using each element's toString)
         java.util.ArrayList<String> rem = new java.util.ArrayList<>();
-        for (SpliteratorForLongKeyOfPattern s : remaining) {
+        for (SpliteratorForRocksKeyOfPattern s : remaining) {
             rem.add(s.toString());
         }
         String remainingStr = rem.isEmpty()

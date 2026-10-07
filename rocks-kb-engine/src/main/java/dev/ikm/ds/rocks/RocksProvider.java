@@ -7,7 +7,7 @@ import dev.ikm.tinkar.common.util.SetOnce;
 import dev.ikm.ds.rocks.maps.*;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
-import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
+import dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
@@ -279,7 +279,7 @@ public class RocksProvider implements PrimitiveDataService, EntityStore, NidGene
         }
     }
 
-    public ImmutableList<SpliteratorForLongKeyOfPattern> allPatternSpliterators() {
+    public ImmutableList<SpliteratorForRocksKeyOfPattern> allPatternSpliterators() {
         return this.sequenceMap.allPatternSpliterators();
     }
 
@@ -505,8 +505,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         return NidLayout.active().decodePatternSequence(nid);
     }
 
-    public long longKeyForNid(int nid) {
-        return NidLayout.active().longKeyForNid(nid);
+    public long rocksKeyForNid(int nid) {
+        return NidLayout.active().rocksKeyForNid(nid);
     }
 
     public int stampSequenceForStampNid(int nid) {
@@ -600,13 +600,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachParallel(ObjIntConsumer<byte[]> action) {
-        // 1) Build a list of SpliteratorForLongKeyOfPattern ranges from the all-entity spliterator
-        Spliterator.OfLong allEntityKeys = this.sequenceMap.allEntityLongKeySpliterator();
+        // 1) Build a list of SpliteratorForRocksKeyOfPattern ranges from the all-entity spliterator
+        Spliterator.OfLong allEntityKeys = this.sequenceMap.allEntityRocksKeySpliterator();
         forEachParallel(action, allEntityKeys);
     }
 
     private void forEachParallel(ObjIntConsumer<byte[]> action, Spliterator.OfLong entityKeys) {
-        MutableList<SpliteratorForLongKeyOfPattern> ranges = Lists.mutable.empty();
+        MutableList<SpliteratorForRocksKeyOfPattern> ranges = Lists.mutable.empty();
 
         // Keep splitting until we can’t split anymore; collect per-pattern ranges
         ArrayDeque<Spliterator.OfLong> queue = new ArrayDeque<>();
@@ -622,20 +622,20 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                 continue;
             }
             // No further split: if this is a per-pattern range, collect it
-            if (s instanceof SpliteratorForLongKeyOfPattern sp) {
+            if (s instanceof SpliteratorForRocksKeyOfPattern sp) {
                 ranges.add(sp);
             } else {
                 // Fallback: if we encounter a non-per-pattern spliterator that can’t split,
                 // try one more split attempt loop (defensive); otherwise, it should be tiny.
                 // In practice, SpliteratorForEntityKeys.trySplit() hands out per-pattern spliterators,
-                // so we should almost always end up here as SpliteratorForLongKeyOfPattern.
+                // so we should almost always end up here as SpliteratorForRocksKeyOfPattern.
                 // If this happens, we can drain it sequentially as a very small tail:
-                s.forEachRemaining((LongConsumer) (longKey) -> {
+                s.forEachRemaining((LongConsumer) (rocksKey) -> {
                     // Create a 1-element range to reuse scanEntitiesInRange
-                    int pattern = (int) ((longKey >>> 48) & 0xFFFF);
-                    long elementSeq = (longKey & 0xFFFFFFFFFFFFL);
-                    SpliteratorForLongKeyOfPattern singleton =
-                            new SpliteratorForLongKeyOfPattern(pattern, elementSeq, elementSeq + 1);
+                    int pattern = (int) ((rocksKey >>> 48) & 0xFFFF);
+                    long elementSeq = (rocksKey & 0xFFFFFFFFFFFFL);
+                    SpliteratorForRocksKeyOfPattern singleton =
+                            new SpliteratorForRocksKeyOfPattern(pattern, elementSeq, elementSeq + 1);
                     this.entityMap.scanEntitiesInRange(singleton, action);
                 });
             }
@@ -645,7 +645,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         // 2) Run each range in parallel with structured concurrency
         try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
-            for (SpliteratorForLongKeyOfPattern range : ranges) {
+            for (SpliteratorForRocksKeyOfPattern range : ranges) {
                 scope.fork(() -> {
                     this.entityMap.scanEntitiesInRange((LongSpliteratorOfPattern) range, action);
                     return null;
@@ -663,7 +663,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     public void forEachParallel(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
         // Collect directly to array
         long[] keys = new long[nids.size()];
-        nids.forEachWithIndex((nid, index) -> keys[index] = NidLayout.active().longKeyForNid(nid));
+        nids.forEachWithIndex((nid, index) -> keys[index] = NidLayout.active().rocksKeyForNid(nid));
 
         // Sort in place (no extra allocation)
         Arrays.parallelSort(keys);
@@ -709,7 +709,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void forEach(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
         MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
-        nids.collectLong(nid -> NidLayout.active().longKeyForNid(nid), longCollection);
+        nids.collectLong(nid -> NidLayout.active().rocksKeyForNid(nid), longCollection);
         longCollection = longCollection.toSortedList();
         long[] keys = longCollection.toArray();
         // Pass false to disable parallel execution (splitting)
@@ -721,7 +721,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public byte[] getBytes(int nid) {
         checkOpen();
-        return this.entityMap.get(longKeyForNid(nid));
+        return this.entityMap.get(rocksKeyForNid(nid));
     }
 
     @Override
@@ -744,8 +744,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             default -> {}
         }
         // The put operation does its own merge in a simpler way...
-        this.entityMap.put(longKeyForNid(nid), value);
-        byte[] mergedBytes = this.entityMap.get(longKeyForNid(nid));
+        this.entityMap.put(rocksKeyForNid(nid), value);
+        byte[] mergedBytes = this.entityMap.get(rocksKeyForNid(nid));
         if (mergedBytes == null) {
             throw new IllegalStateException("Merged bytes should not be null");
         }
@@ -835,7 +835,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     private void forEachElementOfPattern(int patternNid, IntProcedure procedure) {
         int patternSequence = (int) NidLayout.active().decodeElementSequence(patternNid);
         LongSpliteratorOfPattern spliteratorOfPattern = this.sequenceMap.spliteratorOfPattern(patternSequence);
-        spliteratorOfPattern.forEachRemaining((LongConsumer) longKey -> procedure.accept(NidLayout.active().nidForLongKey(longKey)));
+        spliteratorOfPattern.forEachRemaining((LongConsumer) rocksKey -> procedure.accept(NidLayout.active().nidForRocksKey(rocksKey)));
     }
 
     @Override
@@ -845,8 +845,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         java.util.concurrent.atomic.AtomicInteger visitedCount = new java.util.concurrent.atomic.AtomicInteger(0);
         LOG.debug("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
                 dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence(), counterValue);
-        sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> {
-            int nid = NidLayout.active().nidForLongKey(longKey);
+        sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) rocksKey -> {
+            int nid = NidLayout.active().nidForRocksKey(rocksKey);
             // The binding patterns hold a sequence here whether or not a pattern was written
             // for them; a pattern no entity stands behind is not a pattern of this store.
             if (getBytes(nid) != null) {
@@ -894,13 +894,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                     excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(key.nid())));
         }
 
-        ImmutableList<SpliteratorForLongKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
+        ImmutableList<SpliteratorForRocksKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
 
         // Create a list to collect all the sub-spliterators
         MutableList<Spliterator.OfLong> subSpliterators = Lists.mutable.empty();
 
         // Process each semantic spliterator
-        for (SpliteratorForLongKeyOfPattern semanticSpliterator : semanticSpliterators) {
+        for (SpliteratorForRocksKeyOfPattern semanticSpliterator : semanticSpliterators) {
             // Keep splitting until we get chunks of the appropriate size
             Deque<Spliterator.OfLong> queue = new ArrayDeque<>();
             queue.add(semanticSpliterator);
@@ -931,8 +931,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             for (Spliterator.OfLong subSpliterator : subSpliterators) {
                 scope.fork(() -> {
-                    subSpliterator.forEachRemaining((LongConsumer) longKey ->
-                            procedure.accept(NidLayout.active().nidForLongKey(longKey)));
+                    subSpliterator.forEachRemaining((LongConsumer) rocksKey ->
+                            procedure.accept(NidLayout.active().nidForRocksKey(rocksKey)));
                     return null;
                 });
             }
@@ -946,13 +946,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachSemanticNidForComponent(int componentNid, IntProcedure procedure) {
-        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidLayout.active().longKeyForNid(componentNid));
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidLayout.active().rocksKeyForNid(componentNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 
     @Override
     public void forEachSemanticNidForComponentOfPattern(int componentNid, int patternNid, IntProcedure procedure) {
-        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidLayout.active().longKeyForNid(componentNid), (int) NidLayout.active().decodeElementSequence(patternNid));
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidLayout.active().rocksKeyForNid(componentNid), (int) NidLayout.active().decodeElementSequence(patternNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 

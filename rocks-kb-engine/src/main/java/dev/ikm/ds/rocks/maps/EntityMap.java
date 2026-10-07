@@ -221,7 +221,7 @@ public class EntityMap
     }
 
     public byte[] get(EntityKey key) {
-        return get(key.longKey());
+        return get(key.rocksKey());
     }
 
     /**
@@ -234,9 +234,9 @@ public class EntityMap
      * the bytes {@code merge} returns, which the entity layer caches, as well as from reads
      * (IKE-Network/ike-issues#1245).
      */
-    public byte[] get(long longKey) {
-        WriteRecord pendingWrite = pendingWritesMap.get(longKey);
-        byte[] entityPrefix = KeyUtil.longToByteArray(longKey);
+    public byte[] get(long rocksKey) {
+        WriteRecord pendingWrite = pendingWritesMap.get(rocksKey);
+        byte[] entityPrefix = KeyUtil.longToByteArray(rocksKey);
         // Read after the pending check: the epoch then covers any record that has left it.
         long epoch = readEpoch();
         RocksIterator iterator = borrowIterator(epoch);
@@ -358,31 +358,31 @@ public class EntityMap
         if (entityKey instanceof EntityKey.EntityVersionKey) {
             throw new IllegalArgumentException("EntityVersionKey should not be used for put, only the EntityKey.");
         }
-        put(entityKey.longKey(), value);
+        put(entityKey.rocksKey(), value);
     }
 
     /**
-     * Accumulates the entity's version parts into the pending record for {@code longKey}
+     * Accumulates the entity's version parts into the pending record for {@code rocksKey}
      * and hands the result to the writer thread.
      *
-     * @param longKey the entity's long key
+     * @param rocksKey the entity's rocks key
      * @param value   the serialized entity chronology; its version parts are merged with
      *                any parts already pending for the key
      * @throws IllegalStateException if the chronicle part of {@code value} differs from
      *                               the chronicle part already pending for the key
      */
-    public void put(long longKey, byte[] value) {
+    public void put(long rocksKey, byte[] value) {
         // a possibly empty existing part list.
         ImmutableList<ImmutableByteList> newParts = extractVersionParts(value).toImmutable();
-        WriteRecord newRecord = new WriteRecord(longKey, newParts);
+        WriteRecord newRecord = new WriteRecord(rocksKey, newParts);
 
         // Captures the record an unchanged merge left in place, so the enqueue decision
         // below can tell it apart from a merged superset (ike-issues#1060).
         WriteRecord[] unchangedRecord = new WriteRecord[1];
 
-        WriteRecord recordToWrite = pendingWritesMap.merge(longKey, newRecord, (oldRecord, incomingRecord) -> {
+        WriteRecord recordToWrite = pendingWritesMap.merge(rocksKey, newRecord, (oldRecord, incomingRecord) -> {
             if (!incomingRecord.entityParts.get(0).equals(oldRecord.entityParts.get(0))) {
-                throw new IllegalStateException("Entity parts[0] must be the same for the same longKey.");
+                throw new IllegalStateException("Entity parts[0] must be the same for the same rocksKey.");
             }
             MutableList<ImmutableByteList> mergedParts = oldRecord.entityParts.toList();
             for (int i = 1; i < incomingRecord.entityParts.size(); i++) {
@@ -392,7 +392,7 @@ public class EntityMap
             }
             boolean changed = mergedParts.size() != oldRecord.entityParts.size();
             if (changed) {
-                return new WriteRecord(longKey, mergedParts.toImmutable());
+                return new WriteRecord(rocksKey, mergedParts.toImmutable());
             }
             unchangedRecord[0] = oldRecord;
             return oldRecord;
@@ -407,14 +407,14 @@ public class EntityMap
         }
     }
 
-    private static byte[] makeKey(long longKey, boolean isStamp, int partIndex, ImmutableList<ImmutableByteList> chronologyParts) {
+    private static byte[] makeKey(long rocksKey, boolean isStamp, int partIndex, ImmutableList<ImmutableByteList> chronologyParts) {
         if (partIndex == 0) {
-            return KeyUtil.longToByteArray(longKey);
+            return KeyUtil.longToByteArray(rocksKey);
         }
         if (isStamp) {
-            return KeyUtil.stampVersionKey(longKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))), (byte) partIndex);
+            return KeyUtil.stampVersionKey(rocksKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))), (byte) partIndex);
         }
-        return KeyUtil.elementVersionKey(longKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))));
+        return KeyUtil.elementVersionKey(rocksKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))));
     }
 
     /**
@@ -499,8 +499,8 @@ public class EntityMap
             it.seek(firstPrefix);
 
             if (it.isValid()) {
-                while (spliterator.tryAdvance((LongConsumer) longKey -> {
-                    byte[] entityPrefix = KeyUtil.longToByteArray(longKey);
+                while (spliterator.tryAdvance((LongConsumer) rocksKey -> {
+                    byte[] entityPrefix = KeyUtil.longToByteArray(rocksKey);
                     // Ensure we are positioned at or after this entity
                     if (!it.isValid() || !startsWith(it.key(), entityPrefix)) {
                         it.seek(entityPrefix);

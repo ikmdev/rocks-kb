@@ -3,11 +3,11 @@ package dev.ikm.ds.rocks.spliterator;
 import java.util.Comparator;
 import java.util.function.LongConsumer;
 
-public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern, Comparator<SpliteratorForLongKeyOfPattern> {
+public class SpliteratorForRocksKeyOfPattern implements LongSpliteratorOfPattern, Comparator<SpliteratorForRocksKeyOfPattern> {
     final int patternSequence;
     long currentElementSequence;
     long lastElementExclusive;
-    private final long baseHigh; // upper 16 bits of the long key for this pattern
+    private final long baseHigh; // upper 16 bits of the rocks key for this pattern
 
     // Heuristics for CPU-responsiveness (overridable via system properties)
     private static final int RANGES_PER_CPU =
@@ -17,18 +17,18 @@ public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern,
     private static final int MIN_SPLIT_CEILING =
             Integer.getInteger("spliterator.minSplitCeiling", 32768);
 
-    public SpliteratorForLongKeyOfPattern(int patternSequence, long currentElementSequence, long lastElementExclusive) {
+    public SpliteratorForRocksKeyOfPattern(int patternSequence, long currentElementSequence, long lastElementExclusive) {
         this.patternSequence = patternSequence;
         this.currentElementSequence = currentElementSequence;
         this.lastElementExclusive = lastElementExclusive;
         this.baseHigh = ((long) patternSequence) << 48; // cache once; compose keys via OR
     }
 
-    public long getCurrentLongKey() {
+    public long getCurrentRocksKey() {
         return baseHigh | currentElementSequence;
     }
 
-    public long getLastLongKeyExclusive() {
+    public long getLastRocksKeyExclusive() {
         return baseHigh | lastElementExclusive;
     }
 
@@ -58,7 +58,7 @@ public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern,
         }
         long mid = lo + (size / 2);
         // Split gets the lower half [lo, mid); this keeps [mid, hi)
-        SpliteratorForLongKeyOfPattern split = new SpliteratorForLongKeyOfPattern(this.patternSequence, lo, mid);
+        SpliteratorForRocksKeyOfPattern split = new SpliteratorForRocksKeyOfPattern(this.patternSequence, lo, mid);
         this.currentElementSequence = mid;
         return split;
     }
@@ -76,7 +76,7 @@ public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern,
 
     @Override
     public Comparator<? super Long> getComparator() {
-        // SORTED by natural order of the produced long keys
+        // SORTED by natural order of the produced rocks keys
         return null;
     }
 
@@ -94,7 +94,7 @@ public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern,
     }
 
     @Override
-    public int compare(SpliteratorForLongKeyOfPattern o1, SpliteratorForLongKeyOfPattern o2) {
+    public int compare(SpliteratorForRocksKeyOfPattern o1, SpliteratorForRocksKeyOfPattern o2) {
         return Integer.compare(o1.patternSequence, o2.patternSequence);
     }
 

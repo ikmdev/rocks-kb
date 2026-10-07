@@ -10,7 +10,7 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import java.util.Spliterator;
 
 /**
- * Common extension for Spliterator.OfLong that is bound to a specific 16-bit pattern (upper bits of the long key)
+ * Common extension for Spliterator.OfLong that is bound to a specific 16-bit pattern (upper bits of the rocks key)
  * and supports a non-destructive peek of the current value.
  */
 public interface LongSpliteratorOfPattern extends Spliterator.OfLong {
@@ -29,6 +29,6 @@ public interface LongSpliteratorOfPattern extends Spliterator.OfLong {
     }
 
     default PublicId publicIdForPattern() {
-        return EntityHandle.get(NidLayout.active().nidForLongKey(entityKeyForPattern().longKey())).expectPattern().publicId();
+        return EntityHandle.get(NidLayout.active().nidForRocksKey(entityKeyForPattern().rocksKey())).expectPattern().publicId();
     }
 }

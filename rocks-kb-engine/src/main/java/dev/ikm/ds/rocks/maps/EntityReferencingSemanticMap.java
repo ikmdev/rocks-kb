@@ -45,16 +45,16 @@ public class EntityReferencingSemanticMap
     }
 
     public ImmutableList<EntityKey> getReferencingEntityKeys(EntityKey entityKey) {
-        return getReferencingEntityKeys(entityKey.longKey());
+        return getReferencingEntityKeys(entityKey.rocksKey());
     }
 
     public ImmutableList<EntityKey> getReferencingEntityKeysOfPattern(EntityKey entityKey, EntityKey patternEntityKey) {
-        return getReferencingEntityKeysOfPattern(entityKey.longKey(), patternEntityKey.patternSequence());
+        return getReferencingEntityKeysOfPattern(entityKey.rocksKey(), patternEntityKey.patternSequence());
     }
 
     /**
      * The semantics of one pattern that reference an entity. A compound key is the entity's
-     * long key then the semantic's, whose first two bytes are its pattern sequence, so the
+     * rocks key then the semantic's, whose first two bytes are its pattern sequence, so the
      * semantics of one pattern lie together under the entity's key and that sequence: the read
      * seeks straight to them rather than reading every reference and keeping some.
      */
@@ -66,8 +66,8 @@ public class EntityReferencingSemanticMap
         return referencingEntityKeys(prefix);
     }
 
-    public ImmutableList<EntityKey> getReferencingEntityKeys(long longKey) {
-        return referencingEntityKeys(KeyUtil.longToByteArray(longKey));
+    public ImmutableList<EntityKey> getReferencingEntityKeys(long rocksKey) {
+        return referencingEntityKeys(KeyUtil.longToByteArray(rocksKey));
     }
 
     private ImmutableList<EntityKey> referencingEntityKeys(byte[] prefix) {
