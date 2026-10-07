@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 import static dev.ikm.tinkar.entity.EntityRecordFactory.ENTITY_FORMAT_VERSION;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -244,5 +245,45 @@ class EntityMapWriteAccountingTest {
         entityMap.save();
         assertArrayEquals(entity, entityMap.get(key), "write must be readable after flush");
         assertDurable(key, chronicle);
+    }
+
+    /**
+     * A scan sees a write put before it started, even one still pending: the scans read RocksDB
+     * through a snapshot, and before IKE-Network/ike-issues#1252 an entity put just before a scan
+     * could be missing from it. A large entity occupies the writer for milliseconds, so the small
+     * one put after it is still pending when the scan starts.
+     */
+    @Test
+    void forEachSeesAWriteStillPending() {
+        long key = (3L << 48) | 5;
+        byte[] entity = chronicleOnlyEntity(chronicleFor(key, (byte) 0));
+        occupyTheWriter();
+        entityMap.put(key, entity);
+
+        List<byte[]> visited = new ArrayList<>();
+        entityMap.forEach((bytes, nid) -> visited.add(bytes));
+        assertTrue(visited.stream().anyMatch(bytes -> java.util.Arrays.equals(bytes, entity)),
+                "forEach missed the entity put just before it");
+    }
+
+    @Test
+    void scanEntitiesInRangeSeesAWriteStillPending() {
+        long key = (3L << 48) | 5;
+        byte[] entity = chronicleOnlyEntity(chronicleFor(key, (byte) 0));
+        occupyTheWriter();
+        entityMap.put(key, entity);
+
+        List<byte[]> visited = new ArrayList<>();
+        entityMap.scanEntitiesInRange(new dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern(3, 1, 10),
+                (bytes, nid) -> visited.add(bytes));
+        assertEquals(1, visited.size(), "scanEntitiesInRange missed the entity put just before it");
+        assertArrayEquals(entity, visited.getFirst());
+    }
+
+    /** Puts a 32 MB entity, which keeps the writer busy for milliseconds. */
+    private void occupyTheWriter() {
+        byte[] giantChronicle = new byte[32 * 1024 * 1024];
+        giantChronicle[0] = 1;
+        entityMap.put(1L, chronicleOnlyEntity(giantChronicle));
     }
 }

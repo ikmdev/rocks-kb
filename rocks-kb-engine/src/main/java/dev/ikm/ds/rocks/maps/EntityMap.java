@@ -467,6 +467,7 @@ public class EntityMap
     }
 
     public void forEach(ObjIntConsumer<byte[]> entityHandler) {
+        awaitPendingWrites();
         final int allowedErrors = 5;
         int errors = 0;
         int count = 0;
@@ -485,9 +486,20 @@ public class EntityMap
     }
 
 
+    /**
+     * Waits until every write put before this call is in RocksDB. The scans read RocksDB through a
+     * snapshot and do not consult the writes still pending, so without this an entity put just
+     * before a scan could be missing from it (IKE-Network/ike-issues#1252). With nothing pending it
+     * returns at once.
+     */
+    private void awaitPendingWrites() {
+        writeMemoryToDb();
+    }
+
     public void scanEntitiesInRange(LongSpliteratorOfPattern spliterator,
                                     ObjIntConsumer<byte[]> entityHandler) {
         Objects.requireNonNull(entityHandler, "entityHandler");
+        awaitPendingWrites();
 
         try (final Snapshot s = db.getSnapshot();
              final ReadOptions ro =
