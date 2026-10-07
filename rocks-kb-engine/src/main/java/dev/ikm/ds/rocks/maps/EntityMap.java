@@ -54,6 +54,7 @@ public class EntityMap
 
     private final ConcurrentHashMap<Long, WriteRecord> pendingWritesMap = new ConcurrentHashMap<>();
 
+
     private final LinkedBlockingDeque<WriteRecord> pendingWrites = new LinkedBlockingDeque<>();
 
     final Thread writeThread = new Thread(() -> {
@@ -126,6 +127,10 @@ public class EntityMap
                     }
                 }
 
+                // Before any record leaves pendingWritesMap, so a reader that no longer finds
+                // a record pending reads with an iterator that sees it.
+                advanceWriteEpoch();
+
                 // A record superseded by a later merge fails this conditional remove;
                 // the superseding record is itself queued and clears the entry when it lands.
                 for (WriteRecord writeRecord : writeRecords) {
@@ -184,6 +189,7 @@ public class EntityMap
         }
     }
 
+
     /**
      * Waits until every record handed to the writer before this call has been written
      * to RocksDB, bounded by a two-minute deadline. Records enqueued by puts that are
@@ -215,66 +221,104 @@ public class EntityMap
     }
 
     public byte[] get(EntityKey key) {
-        return get(key.longKey());
-    }
-
-    private MutableList<ImmutableByteList> getEntityParts(long longKey) {
-        if (keyExists(KeyUtil.longToByteArray(longKey))) {
-            try (ReadOptions ro = new ReadOptions()
-                    .setPrefixSameAsStart(true)     // optional: keep iteration within prefix
-                    .setTotalOrderSeek(true);     // optional: ignore prefix bloom; full-order seek
-                 RocksIterator iterator = rocksIterator(ro)) {
-                return getEntityParts(longKey, iterator);
-            }
-        }
-        return Lists.mutable.empty();
-    }
-
-    private MutableList<ImmutableByteList> getEntityParts(long longKey, RocksIterator iterator) {
-
-        byte[] entityPrefix = KeyUtil.longToByteArray(longKey);
-        iterator.seek(entityPrefix);
-
-        return getEntityParts(iterator, entityPrefix);
+        return get(key.rocksKey());
     }
 
     /**
-     * Gets the entity parts from the iterator starting at the given entity prefix.
-     * After this method completes, the iterator will be positioned after the last part
-     * belonging to the entity with the given prefix.
-     *
-     * @param iterator     the RocksDB iterator to read from
-     * @param entityPrefix the prefix bytes that identify the entity
-     * @return a list of the entity parts, or null if the entity is not found
+     * The entity's bytes, or {@code null} if the store holds no entity under the key. One seek
+     * answers both: the chronology part lies under the entity's own key and its versions under
+     * keys that extend it, so a seek that lands elsewhere means there is no entity.
+     * <p>A pending write holds only the versions put since the entity was last written, so when
+     * one is pending the stored versions are read too and the two are merged, each version
+     * once. Answering from the pending write alone dropped every version already written, from
+     * the bytes {@code merge} returns, which the entity layer caches, as well as from reads
+     * (IKE-Network/ike-issues#1245).
      */
-    private MutableList<ImmutableByteList> getEntityParts(RocksIterator iterator, byte[] entityPrefix) {
-        MutableList<ImmutableByteList> results = Lists.mutable.empty();
-        // Process the chronology part distinctly
-        if (iterator.isValid() && startsWith(iterator.key(), entityPrefix)) {
-            results.add(ByteLists.immutable.of(iterator.value()));
-        } else {
-            //LOG.warn("Entity byte[] not found: " + String.format("0x%016X", longKey) + " uuids: " + uuids);
-            return null;
+    public byte[] get(long rocksKey) {
+        WriteRecord pendingWrite = pendingWritesMap.get(rocksKey);
+        byte[] entityPrefix = KeyUtil.longToByteArray(rocksKey);
+        // Read after the pending check: the epoch then covers any record that has left it.
+        long epoch = readEpoch();
+        RocksIterator iterator = borrowIterator(epoch);
+        MutableList<byte[]> storedParts;
+        try {
+            iterator.seek(entityPrefix);
+            storedParts = readParts(iterator, entityPrefix);
+        } finally {
+            returnIterator(iterator, epoch);
         }
-
-        // Process the version part(s) distinctly
-        for (iterator.next();
-             iterator.isValid() && startsWith(iterator.key(), entityPrefix);
-             iterator.next()) {
-            results.add(ByteLists.immutable.of(iterator.value()));
+        if (pendingWrite == null) {
+            return storedParts == null ? null : assemble(storedParts);
         }
-        return results;
-    }
-
-    public byte[] get(long longKey) {
-        WriteRecord pendingWrite = pendingWritesMap.get(longKey);
-        if (pendingWrite != null) {
+        if (storedParts == null) {
             return mergeParts(pendingWrite.entityParts);
         }
-        if (keyExists(KeyUtil.longToByteArray(longKey)) == false) {
+        MutableList<ImmutableByteList> parts = Lists.mutable.ofInitialCapacity(
+                storedParts.size() + pendingWrite.entityParts.size() - 1);
+        parts.add(pendingWrite.entityParts.get(0));
+        for (int i = 1; i < storedParts.size(); i++) {
+            parts.add(ByteLists.immutable.of(storedParts.get(i)));
+        }
+        for (int i = 1; i < pendingWrite.entityParts.size(); i++) {
+            ImmutableByteList pendingPart = pendingWrite.entityParts.get(i);
+            if (!parts.contains(pendingPart)) {
+                parts.add(pendingPart);
+            }
+        }
+        return mergeParts(parts.toImmutable());
+    }
+
+
+    /**
+     * Reads the parts of the entity whose key the iterator is on, if it is on that entity's
+     * chronology part, leaving the iterator after the entity's last version.
+     *
+     * @return the parts, chronology first, or {@code null} if the iterator is not on the entity
+     */
+    private static MutableList<byte[]> readParts(RocksIterator iterator, byte[] entityPrefix) {
+        if (!iterator.isValid() || !startsWith(iterator.key(), entityPrefix)) {
             return null;
         }
-        return mergeParts(getEntityParts(longKey).toImmutable());
+        MutableList<byte[]> parts = Lists.mutable.ofInitialCapacity(4);
+        parts.add(iterator.value());
+        for (iterator.next(); iterator.isValid() && startsWith(iterator.key(), entityPrefix); iterator.next()) {
+            parts.add(iterator.value());
+        }
+        return parts;
+    }
+
+    /**
+     * The entity's bytes, from its parts as stored, in the layout {@link #mergeParts} writes,
+     * copied once into an array of the exact size.
+     */
+    private static byte[] assemble(MutableList<byte[]> parts) {
+        int size = 4 + 4 + 1 + parts.get(0).length + 4;
+        for (int i = 1; i < parts.size(); i++) {
+            size += 4 + parts.get(i).length;
+        }
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(size);
+        buf.putInt(parts.size());
+        byte[] chronology = parts.get(0);
+        buf.putInt(chronology.length + 4 + 1); // the chronology, its 4 byte size and the 1 byte format version
+        buf.put(ENTITY_FORMAT_VERSION);
+        buf.put(chronology);
+        buf.putInt(parts.size() - 1);
+        for (int i = 1; i < parts.size(); i++) {
+            buf.putInt(parts.get(i).length);
+            buf.put(parts.get(i));
+        }
+        return buf.array();
+    }
+
+    private static int nidOf(byte[] chronologyPart) {
+        if (chronologyPart.length < 5) {
+            throw new IllegalArgumentException("chronology part is too small to contain nid at [1..4]: "
+                    + java.util.Arrays.toString(chronologyPart));
+        }
+        return ((chronologyPart[1] & 0xFF) << 24) |
+                ((chronologyPart[2] & 0xFF) << 16) |
+                ((chronologyPart[3] & 0xFF) << 8)  |
+                (chronologyPart[4] & 0xFF);
     }
 
     private static byte[] mergeParts(ImmutableList<ImmutableByteList> entityParts) {
@@ -301,7 +345,7 @@ public class EntityMap
         return results;
     }
 
-    private boolean startsWith(byte[] key, byte[] prefix) {
+    private static boolean startsWith(byte[] key, byte[] prefix) {
         if (key.length < prefix.length) return false;
         for (int i = 0; i < prefix.length; i++) {
             if (key[i] != prefix[i]) return false;
@@ -314,31 +358,31 @@ public class EntityMap
         if (entityKey instanceof EntityKey.EntityVersionKey) {
             throw new IllegalArgumentException("EntityVersionKey should not be used for put, only the EntityKey.");
         }
-        put(entityKey.longKey(), value);
+        put(entityKey.rocksKey(), value);
     }
 
     /**
-     * Accumulates the entity's version parts into the pending record for {@code longKey}
+     * Accumulates the entity's version parts into the pending record for {@code rocksKey}
      * and hands the result to the writer thread.
      *
-     * @param longKey the entity's long key
+     * @param rocksKey the entity's rocks key
      * @param value   the serialized entity chronology; its version parts are merged with
      *                any parts already pending for the key
      * @throws IllegalStateException if the chronicle part of {@code value} differs from
      *                               the chronicle part already pending for the key
      */
-    public void put(long longKey, byte[] value) {
+    public void put(long rocksKey, byte[] value) {
         // a possibly empty existing part list.
         ImmutableList<ImmutableByteList> newParts = extractVersionParts(value).toImmutable();
-        WriteRecord newRecord = new WriteRecord(longKey, newParts);
+        WriteRecord newRecord = new WriteRecord(rocksKey, newParts);
 
         // Captures the record an unchanged merge left in place, so the enqueue decision
         // below can tell it apart from a merged superset (ike-issues#1060).
         WriteRecord[] unchangedRecord = new WriteRecord[1];
 
-        WriteRecord recordToWrite = pendingWritesMap.merge(longKey, newRecord, (oldRecord, incomingRecord) -> {
+        WriteRecord recordToWrite = pendingWritesMap.merge(rocksKey, newRecord, (oldRecord, incomingRecord) -> {
             if (!incomingRecord.entityParts.get(0).equals(oldRecord.entityParts.get(0))) {
-                throw new IllegalStateException("Entity parts[0] must be the same for the same longKey.");
+                throw new IllegalStateException("Entity parts[0] must be the same for the same rocksKey.");
             }
             MutableList<ImmutableByteList> mergedParts = oldRecord.entityParts.toList();
             for (int i = 1; i < incomingRecord.entityParts.size(); i++) {
@@ -348,7 +392,7 @@ public class EntityMap
             }
             boolean changed = mergedParts.size() != oldRecord.entityParts.size();
             if (changed) {
-                return new WriteRecord(longKey, mergedParts.toImmutable());
+                return new WriteRecord(rocksKey, mergedParts.toImmutable());
             }
             unchangedRecord[0] = oldRecord;
             return oldRecord;
@@ -363,14 +407,14 @@ public class EntityMap
         }
     }
 
-    private static byte[] makeKey(long longKey, boolean isStamp, int partIndex, ImmutableList<ImmutableByteList> chronologyParts) {
+    private static byte[] makeKey(long rocksKey, boolean isStamp, int partIndex, ImmutableList<ImmutableByteList> chronologyParts) {
         if (partIndex == 0) {
-            return KeyUtil.longToByteArray(longKey);
+            return KeyUtil.longToByteArray(rocksKey);
         }
         if (isStamp) {
-            return KeyUtil.stampVersionKey(longKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))), (byte) partIndex);
+            return KeyUtil.stampVersionKey(rocksKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))), (byte) partIndex);
         }
-        return KeyUtil.elementVersionKey(longKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))));
+        return KeyUtil.elementVersionKey(rocksKey, Get.stampSequenceForStampNid(getStampNid(chronologyParts.get(partIndex))));
     }
 
     /**
@@ -433,20 +477,9 @@ public class EntityMap
                              .setSnapshot(s);
              RocksIterator it = rocksIterator(ro)) {
             for (it.seekToFirst(); it.isValid(); ) {
-                if (it.isValid()) {
-                    MutableList<ImmutableByteList> partList = Lists.mutable.ofInitialCapacity(10);
-                    byte[] entityPrefix = it.key();
-                    partList.add(ByteLists.immutable.of(it.value()));
-                    it.next(); // may invalidate; rechecked at loop head
-                    // Drain all entries that share this entity prefix
-                    while (it.isValid() && startsWith(it.key(), entityPrefix)) {
-                        partList.add(ByteLists.immutable.of(it.value()));
-                        it.next(); // may invalidate; rechecked at loop head
-                    }
-                    ImmutableList<ImmutableByteList> parts = partList.toImmutable();
-                    int nid = extractNid(parts);
-                    entityHandler.accept(mergeParts(parts), nid);
-                }
+                // The iterator is on an entity's chronology part; read it and its versions.
+                MutableList<byte[]> parts = readParts(it, it.key());
+                entityHandler.accept(assemble(parts), nidOf(parts.get(0)));
             }
         }
     }
@@ -466,47 +499,21 @@ public class EntityMap
             it.seek(firstPrefix);
 
             if (it.isValid()) {
-                while (spliterator.tryAdvance((LongConsumer) longKey -> {
-                    byte[] entityPrefix = KeyUtil.longToByteArray(longKey);
+                while (spliterator.tryAdvance((LongConsumer) rocksKey -> {
+                    byte[] entityPrefix = KeyUtil.longToByteArray(rocksKey);
                     // Ensure we are positioned at or after this entity
                     if (!it.isValid() || !startsWith(it.key(), entityPrefix)) {
                         it.seek(entityPrefix);
                     }
 
-                    // If entity exists, consume base and versions
-                    if (it.isValid() && startsWith(it.key(), entityPrefix)) {
-                        // base
-                        MutableList<ImmutableByteList> partList = Lists.mutable.ofInitialCapacity(10);
-                        partList.add(ByteLists.immutable.of(it.value()));
-                        it.next(); // may invalidate; rechecked at loop head
-                        // Drain all entries that share this entity prefix
-                        // versions
-                        while (it.isValid() && startsWith(it.key(), entityPrefix)) {
-                            partList.add(ByteLists.immutable.of(it.value()));
-                            it.next(); // may invalidate; rechecked at loop head
-                        }
-                        ImmutableList<ImmutableByteList> parts = partList.toImmutable();
-                        int nid = extractNid(parts);
-                        entityHandler.accept(mergeParts(parts), nid);
+                    // If entity exists, consume its chronology and versions
+                    MutableList<byte[]> parts = readParts(it, entityPrefix);
+                    if (parts != null) {
+                        entityHandler.accept(assemble(parts), nidOf(parts.get(0)));
                     }
                 }));
             }
         }
-    }
-
-    public static int extractNid(ImmutableList<ImmutableByteList> parts) {
-        if (parts == null || parts.isEmpty()) {
-            throw new IllegalArgumentException("parts must contain at least the chronology part");
-        }
-        ImmutableByteList chronPart = parts.get(0);
-        if (chronPart.size() < 5) {
-            throw new IllegalArgumentException("chronology part is too small to contain nid at [2..5]: " + chronPart +
-                    "\n\n" + parts);
-        }
-        return ((chronPart.get(1) & 0xFF) << 24) |
-                ((chronPart.get(2) & 0xFF) << 16) |
-                ((chronPart.get(3) & 0xFF) << 8)  |
-                (chronPart.get(4) & 0xFF);
     }
 
 }

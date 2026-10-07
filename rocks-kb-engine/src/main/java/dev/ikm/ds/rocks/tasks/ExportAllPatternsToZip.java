@@ -3,7 +3,7 @@ package dev.ikm.ds.rocks.tasks;
 import dev.ikm.tinkar.common.util.thread.StructuredScopes;
 import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.ds.rocks.RocksProvider;
-import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
+import dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern;
 import dev.ikm.tinkar.common.service.TrackingCallable;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -40,7 +40,7 @@ public final class ExportAllPatternsToZip extends TrackingCallable<Path> {
 
     @Override
     protected Path compute() throws Exception {
-        ImmutableList<SpliteratorForLongKeyOfPattern> ranges = provider.allPatternSpliterators();
+        ImmutableList<SpliteratorForRocksKeyOfPattern> ranges = provider.allPatternSpliterators();
         long totalEntities = ranges.stream()
                 .mapToLong(r -> {
                     long est = r.estimateSize();

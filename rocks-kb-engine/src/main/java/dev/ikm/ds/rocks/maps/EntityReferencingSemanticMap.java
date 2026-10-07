@@ -45,27 +45,45 @@ public class EntityReferencingSemanticMap
     }
 
     public ImmutableList<EntityKey> getReferencingEntityKeys(EntityKey entityKey) {
-        return getReferencingEntityKeys(entityKey.longKey());
+        return getReferencingEntityKeys(entityKey.rocksKey());
     }
 
     public ImmutableList<EntityKey> getReferencingEntityKeysOfPattern(EntityKey entityKey, EntityKey patternEntityKey) {
-        ImmutableList<EntityKey> referencingEntityKeys = getReferencingEntityKeys(entityKey.longKey());
-        return referencingEntityKeys.select(referencingEntityKey -> referencingEntityKey.patternSequence() == patternEntityKey.patternSequence());
+        return getReferencingEntityKeysOfPattern(entityKey.rocksKey(), patternEntityKey.patternSequence());
     }
+
+    /**
+     * The semantics of one pattern that reference an entity. A compound key is the entity's
+     * rocks key then the semantic's, whose first two bytes are its pattern sequence, so the
+     * semantics of one pattern lie together under the entity's key and that sequence: the read
+     * seeks straight to them rather than reading every reference and keeping some.
+     */
     public ImmutableList<EntityKey> getReferencingEntityKeysOfPattern(long entityKey, int patternSequence) {
-        ImmutableList<EntityKey> referencingEntityKeys = getReferencingEntityKeys(entityKey);
-        return referencingEntityKeys.select(referencingEntityKey -> referencingEntityKey.patternSequence() == patternSequence);
+        byte[] prefix = new byte[10];
+        System.arraycopy(KeyUtil.longToByteArray(entityKey), 0, prefix, 0, 8);
+        prefix[8] = (byte) (patternSequence >>> 8);
+        prefix[9] = (byte) patternSequence;
+        return referencingEntityKeys(prefix);
     }
 
-    public ImmutableList<EntityKey> getReferencingEntityKeys(long longKey) {
-        byte[] prefix = KeyUtil.longToByteArray(longKey);
-        MutableList<EntityKey> results = Lists.mutable.empty();
+    public ImmutableList<EntityKey> getReferencingEntityKeys(long rocksKey) {
+        return referencingEntityKeys(KeyUtil.longToByteArray(rocksKey));
+    }
 
-        try (RocksIterator it = rocksIterator()) {
-            for (it.seek(prefix); it.isValid() && startsWith(it.key(), prefix); it.next()) {
-                EntityKey referencingEntityKey = KeyUtil.referencingEntityKeyFromEntityReferencingSemanticKey(it.key());
-                results.add(referencingEntityKey);
+    private ImmutableList<EntityKey> referencingEntityKeys(byte[] prefix) {
+        MutableList<EntityKey> results = Lists.mutable.empty();
+        long epoch = readEpoch();
+        RocksIterator it = borrowIterator(epoch);
+        try {
+            for (it.seek(prefix); it.isValid(); it.next()) {
+                byte[] key = it.key();
+                if (!startsWith(key, prefix)) {
+                    break;
+                }
+                results.add(KeyUtil.referencingEntityKeyFromEntityReferencingSemanticKey(key));
             }
+        } finally {
+            returnIterator(it, epoch);
         }
         return results.toImmutable();
     }

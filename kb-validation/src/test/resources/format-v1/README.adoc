@@ -1,0 +1,27 @@
+= Format version 1 fixtures
+
+Changesets in the format every release before `Ike-Format-Version: 2` wrote:
+public ids as UUID strings, no format version in the manifest, no identity
+index. `FormatVersion1ReadIT` loads them into every store, so a reader that
+stops understanding version 1 fails the build. They are frozen: never
+regenerate them, since a regenerated file is written in the current format.
+
+|===
+| File | Origin | SHA-256
+
+| `ike-starter-set-reasoned-pb.zip`
+| `network.ike.foundation:ike-starter-set:1-64bit-SNAPSHOT:reasoned-pb`, built
+  2026-10-05 from `starter-data-ws꞉64bit` (`ike-starter-set` at `4bf679c`, with
+  uncommitted work)
+| `936281372498112555572c6a833dc49d517d34ccafded5b036b624996970b624`
+
+| `active-state-fqn-change-ike-cs.zip`
+| Komet changeset (`ChangeSetWriterProvider`), 2025-05-12: a new fully
+  qualified name for Active state. Copied from tinkar-core's integration tests.
+| `f4efe41ac0afc45d18b708bc030b8804ea42a310b01e5e488939d6ccbb4ef9bf`
+
+| `active-state-other-change-ike-cs.zip`
+| Komet changeset, 2025-05-12: a new regular name for Active state. Copied from
+  tinkar-core's integration tests.
+| `2f68b31b40b2dd0e34f60584320d03637203caf792a4318840c0bd7c9459d06d`
+|===

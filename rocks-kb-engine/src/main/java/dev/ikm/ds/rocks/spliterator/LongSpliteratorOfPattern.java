@@ -5,12 +5,12 @@ import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.maps.SequenceMap;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
-import dev.ikm.tinkar.entity.Entity;
+import dev.ikm.tinkar.entity.EntityHandle;
 
 import java.util.Spliterator;
 
 /**
- * Common extension for Spliterator.OfLong that is bound to a specific 16-bit pattern (upper bits of the long key)
+ * Common extension for Spliterator.OfLong that is bound to a specific 16-bit pattern (upper bits of the rocks key)
  * and supports a non-destructive peek of the current value.
  */
 public interface LongSpliteratorOfPattern extends Spliterator.OfLong {
@@ -29,6 +29,6 @@ public interface LongSpliteratorOfPattern extends Spliterator.OfLong {
     }
 
     default PublicId publicIdForPattern() {
-        return Entity.getFast(NidLayout.active().nidForLongKey(entityKeyForPattern().longKey()));
+        return EntityHandle.get(NidLayout.active().nidForRocksKey(entityKeyForPattern().rocksKey())).expectPattern().publicId();
     }
 }

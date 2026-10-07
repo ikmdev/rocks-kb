@@ -1,11 +1,12 @@
 package dev.ikm.ds.rocks.maps;
 
 
+import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
-import dev.ikm.ds.rocks.tasks.ImportProtobufTask;
 import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 
 import java.util.Map;
 import java.util.Optional;
@@ -61,6 +62,7 @@ public class UuidEntityKeyMap
 
     private enum TraceLevel {
         NONE,
+        /** A watched component: see {@link LoadEntitiesFromProtobufFile}'s watch list. */
         INFO,
         DEBUG
     }
@@ -74,10 +76,10 @@ public class UuidEntityKeyMap
     }
 
     // TODO: Temp, only checks for existence of key in memory.
-    public ImmutableList<UUID> getUuids(long longKey) {
+    public ImmutableList<UUID> getUuids(long rocksKey) {
         MutableList<UUID> matchingUuids = Lists.mutable.empty();
         for (Map.Entry<UUID, EntityKey> entry : uuidEntityKeyMap.entrySet()) {
-            if (entry.getValue().longKey() == longKey) {
+            if (entry.getValue().rocksKey() == rocksKey) {
                 matchingUuids.add(entry.getKey());
             }
         }
@@ -239,19 +241,15 @@ public class UuidEntityKeyMap
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
-        TraceLevel traceLevel = TraceLevel.NONE;
-        if (ImportProtobufTask.SCOPED_WATCH_LIST.isBound()) {
-            Set<UUID> watchList = ImportProtobufTask.SCOPED_WATCH_LIST.get();
-            Set<UUID> values = patternId.asUuidList().toSet();
-            values.addAll(entityId.asUuidList().toSet());
-
-            if (watchList.stream().anyMatch(values::contains)) {
-                LOG.info("Watch in public id found: patternId {} and entityId {} found", patternId, entityId);
+        TraceLevel traceLevel = LOG.isDebugEnabled() ? TraceLevel.DEBUG : TraceLevel.NONE;
+        // An import's watch list (-Dtinkar.import.watch) raises its components' allocation trace to INFO.
+        if (LoadEntitiesFromProtobufFile.SCOPED_WATCH_LIST.isBound()) {
+            Set<UUID> watchList = LoadEntitiesFromProtobufFile.SCOPED_WATCH_LIST.get();
+            if (!watchList.isEmpty() && (patternId.asUuidList().anySatisfy(watchList::contains)
+                    || entityId.asUuidList().anySatisfy(watchList::contains))) {
+                LOG.info("Watch in public id found: patternId {} and entityId {}", patternId, entityId);
                 traceLevel = TraceLevel.INFO;
             }
-        }
-        if (traceLevel == TraceLevel.NONE && LOG.isDebugEnabled()) {
-            traceLevel = TraceLevel.DEBUG;
         }
 
         EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId)
@@ -286,6 +284,7 @@ public class UuidEntityKeyMap
         }
         uuidLockTable.lock(id);
         try {
+            adviseIfSeveralComponents(uuids);
             EntityKey entityKey = existingKey(uuids);
             if (entityKey == null) {
                 entityKey = allocator.get();
@@ -298,6 +297,20 @@ public class UuidEntityKeyMap
             return entityKey;
         } finally {
             uuidLockTable.unlock(id);
+        }
+    }
+
+    /** Reports a public id whose UUIDs belong to more than one existing component. */
+    private void adviseIfSeveralComponents(UUID[] uuids) {
+        if (uuids.length < 2) {
+            return;
+        }
+        java.util.TreeSet<Integer> nids = new java.util.TreeSet<>();
+        for (UUID uuid : uuids) {
+            getEntityKey(uuid).ifPresent(key -> nids.add(key.nid()));
+        }
+        if (nids.size() > 1) {
+            IdentityAdvisories.componentsShareUuids(java.util.List.of(uuids), nids);
         }
     }
 
@@ -332,8 +345,11 @@ public class UuidEntityKeyMap
         EntityKey actualPatternPatternKey = getEntityKey(SequenceMap.PATTERN_PATTERN_UUID)
                 .orElse(SequenceMap.patternPatternEntityKey());
         boolean isPatternPattern = patternKey.equals(actualPatternPatternKey);
-        LOG.info("allocateEntityKey: id={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
-                ENTITY_PUBLIC_ID.get(), patternKey, actualPatternPatternKey, isPatternPattern);
+        // Debug only: this runs for every entity allocated, millions of times in a large import.
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("allocateEntityKey: id={}, patternKey={}, actualPatternPatternKey={}, isPatternPattern={}",
+                    ENTITY_PUBLIC_ID.get(), patternKey, actualPatternPatternKey, isPatternPattern);
+        }
         if (isPatternPattern) {
             int patternSequence = patternPatternSequence();
             long patternElementSequence = this.sequenceMap.nextPatternSequence();

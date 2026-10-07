@@ -4,7 +4,7 @@ import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
-import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
+import dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
@@ -25,7 +25,8 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public static final int FIRST_ELEMENT_SEQUENCE_OF_PATTERN = 1;
     private static int nextPatternElementSequence = FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
 
-    public static final UUID PATTERN_PATTERN_UUID = EntityBinding.Pattern.pattern().asUuidArray()[0];
+    /** The UUID of the pattern-of-patterns ({@link EntityBinding.Pattern#pattern()}, made from this one UUID). */
+    public static final UUID PATTERN_PATTERN_UUID = EntityBinding.Pattern.pattern().leastUuid();
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
 
     /**
@@ -85,8 +86,8 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
             sequenceReport.append(String.format(
                     "%s | EntityKey: %,d (0x%016X) | EntityNid: %,d (0x%08X)%n\n",
                     patternName,
-                    patternKey.longKey(),          // decimal
-                    patternKey.longKey(),          // hex (zero-padded to 16 for a long)
+                    patternKey.rocksKey(),          // decimal
+                    patternKey.rocksKey(),          // hex (zero-padded to 16 for a long)
                     patternNid,                    // decimal
                     patternNid                     // hex (zero-padded to 8 for an int)
             ));
@@ -216,20 +217,21 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
         return newPatternSequence;
     }
 
-    public SpliteratorForEntityKeys allEntityLongKeySpliterator() {
-    Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
-                .filter(entry -> entry.getKey() != patternPatternSequence()) // Exclude the meta-entry
-                .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
+    public SpliteratorForEntityKeys allEntityRocksKeySpliterator() {
+    // Every pattern sequence, the pattern-of-patterns included: its elements are the pattern
+    // entities themselves, which a scan of every entity must visit.
+    Collection<SpliteratorForRocksKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
+                .map(entry -> new SpliteratorForRocksKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get()))
                 .toList();
         return new SpliteratorForEntityKeys(spliterators);
     }
 
-    public ImmutableList<SpliteratorForLongKeyOfPattern> allPatternSpliterators() {
+    public ImmutableList<SpliteratorForRocksKeyOfPattern> allPatternSpliterators() {
         return Lists.immutable.ofAll(
                 nextSequenceMap.entrySet().stream()
                 .filter(entry -> entry.getKey() != patternPatternSequence()) // Exclude the meta-entry
-                .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
+                .map(entry -> new SpliteratorForRocksKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get())).toList());
     }
 
@@ -237,13 +239,13 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
         AtomicLong counter = nextSequenceMap.get(patternSequence);
         if (counter == null) {
             // Pattern has no elements yet — return an empty spliterator
-            return new SpliteratorForLongKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, FIRST_ELEMENT_SEQUENCE_OF_PATTERN);
+            return new SpliteratorForRocksKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, FIRST_ELEMENT_SEQUENCE_OF_PATTERN);
         }
-        return new SpliteratorForLongKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, counter.get());
+        return new SpliteratorForRocksKeyOfPattern(patternSequence, FIRST_ELEMENT_SEQUENCE_OF_PATTERN, counter.get());
     }
 
     public LongSpliteratorOfPattern spliteratorOfPatterns() {
         long maxPatternSequenceExclusive = nextSequenceMap.get(patternPatternSequence()).get();
-        return new SpliteratorForLongKeyOfPattern(patternPatternSequence(),  FIRST_ELEMENT_SEQUENCE_OF_PATTERN, maxPatternSequenceExclusive);
+        return new SpliteratorForRocksKeyOfPattern(patternPatternSequence(),  FIRST_ELEMENT_SEQUENCE_OF_PATTERN, maxPatternSequenceExclusive);
     }
 }
