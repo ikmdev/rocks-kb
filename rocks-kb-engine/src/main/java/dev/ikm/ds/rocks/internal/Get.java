@@ -1,5 +1,7 @@
 package dev.ikm.ds.rocks.internal;
 
+import dev.ikm.tinkar.common.id.Nid;
+
 import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.tinkar.component.Stamp;
 import dev.ikm.tinkar.entity.ConceptEntity;
@@ -20,7 +22,7 @@ public class Get {
     }
 
     public static int nidForUuids(ImmutableList<UUID> uuidList) {
-        return RocksProvider.get().nidForUuids(uuidList);
+        return Nid.narrowChecked(RocksProvider.get().nidForUuids(uuidList));
     }
 
     public static int stampNid(Stamp stamp) {

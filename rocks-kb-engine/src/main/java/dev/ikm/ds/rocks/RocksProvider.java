@@ -1,5 +1,10 @@
 package dev.ikm.ds.rocks;
 
+import dev.ikm.tinkar.common.id.Nid;
+
+import java.util.function.ObjLongConsumer;
+import org.eclipse.collections.api.list.primitive.ImmutableLongList;
+
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.util.thread.StructuredScopes;
 import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
@@ -23,6 +28,7 @@ import dev.ikm.tinkar.common.service.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.EntityProxy;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
+import org.eclipse.collections.api.block.procedure.primitive.LongProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.Maps;
@@ -500,7 +506,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public int newNid() {
+    public long newNid() {
         throw new UnsupportedOperationException();
     }
 
@@ -530,7 +536,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public int nidForUuids(UUID... uuids) {
+    public long nidForUuids(UUID... uuids) {
         // Diagnostic for ikmdev/komet-desktop#12 (closed): which path produces the nid for a
         // new pattern UUID. Debug only: this runs for every nid lookup, millions of times in a
         // large import.
@@ -548,7 +554,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         if (uuids.length > 1) {
             ordered = uuids.clone();
             Arrays.sort(ordered);
-            java.util.TreeSet<Integer> nids = new java.util.TreeSet<>();
+            java.util.TreeSet<Long> nids = new java.util.TreeSet<>();
             for (UUID uuid : ordered) {
                 uuidEntityKeyMap.getEntityKey(uuid).ifPresent(key -> nids.add(key.nid()));
             }
@@ -559,7 +565,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         for (UUID uuid: ordered) {
             Optional<EntityKey> optionalKey = uuidEntityKeyMap.getEntityKey(uuid);
             if (optionalKey.isPresent()) {
-                int nid = optionalKey.get().nid();
+                int nid = Nid.narrowChecked(optionalKey.get().nid());
                 if (debug) {
                     LOG.debug("nidForUuids: existing match for uuid={} -> nid={} (patternSeq={}, elementSeq={})",
                             uuid, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
@@ -570,7 +576,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         if (SCOPED_PATTERN_PUBLICID_FOR_NID.isBound()) {
             PublicId patternPublicId = SCOPED_PATTERN_PUBLICID_FOR_NID.get();
             EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
-            int nid = stampEntityKey.nid();
+            int nid = Nid.narrowChecked(stampEntityKey.nid());
             if (debug) {
                 LOG.debug("nidForUuids: allocated via scoped pattern {} -> nid={} (patternSeq={}, elementSeq={})",
                         patternPublicId, nid, NidLayout.active().decodePatternSequence(nid), NidLayout.active().decodeElementSequence(nid));
@@ -588,7 +594,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public int nidForUuids(ImmutableList<UUID> uuidList) {
+    public long nidForUuids(ImmutableList<UUID> uuidList) {
         return nidForUuids(uuidList.toArray(new UUID[uuidList.size()]));
     }
 
@@ -610,15 +616,15 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEach(ObjIntConsumer<byte[]> action) {
-        entityMap.forEach(action);
+    public void forEach(ObjLongConsumer<byte[]> action) {
+        entityMap.forEach((bytes, nid) -> action.accept(bytes, nid));
     }
 
     @Override
-    public void forEachParallel(ObjIntConsumer<byte[]> action) {
+    public void forEachParallel(ObjLongConsumer<byte[]> action) {
         // 1) Build a list of SpliteratorForRocksKeyOfPattern ranges from the all-entity spliterator
         Spliterator.OfLong allEntityKeys = this.sequenceMap.allEntityRocksKeySpliterator();
-        forEachParallel(action, allEntityKeys);
+        forEachParallel((bytes, nid) -> action.accept(bytes, nid), allEntityKeys);
     }
 
     private void forEachParallel(ObjIntConsumer<byte[]> action, Spliterator.OfLong entityKeys) {
@@ -676,7 +682,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEachParallel(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
+    public void forEachParallel(ImmutableLongList nids, ObjLongConsumer<byte[]> action) {
         // Collect directly to array
         long[] keys = new long[nids.size()];
         nids.forEachWithIndex((nid, index) -> keys[index] = NidLayout.active().rocksKeyForNid(nid));
@@ -710,7 +716,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
             for (LongSpliteratorOfPattern part : subSpliterators) {
                 scope.fork(() -> {
-                    this.entityMap.scanEntitiesInRange(part, action);
+                    this.entityMap.scanEntitiesInRange(part, (bytes, nid) -> action.accept(bytes, nid));
                     return null;
                 });
             }
@@ -723,7 +729,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEach(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
+    public void forEach(ImmutableLongList nids, ObjLongConsumer<byte[]> action) {
         MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
         nids.collectLong(nid -> NidLayout.active().rocksKeyForNid(nid), longCollection);
         longCollection = longCollection.toSortedList();
@@ -731,19 +737,19 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         // Pass false to disable parallel execution (splitting)
         ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys, false);
         for (LongSpliteratorOfPattern part : parts) {
-            this.entityMap.scanEntitiesInRange(part, action);
+            this.entityMap.scanEntitiesInRange(part, (bytes, nid) -> action.accept(bytes, nid));
         }    }
 
     @Override
-    public byte[] getBytes(int nid) {
+    public byte[] getBytes(long nid) {
         checkOpen();
-        return this.entityMap.get(rocksKeyForNid(nid));
+        return this.entityMap.get(rocksKeyForNid(Nid.narrowChecked(nid)));
     }
 
     @Override
-    public byte[] merge(int nid, int patternNid, int referencedComponentNid, byte[] value, final Object sourceObject, final DataActivity activity) {
+    public byte[] merge(long nid, long patternNid, long referencedComponentNid, byte[] value, final Object sourceObject, final DataActivity activity) {
         checkOpen();
-        if (nid == Integer.MIN_VALUE) {
+        if (Nid.isNone(nid)) {
             LOG.error("NID should not be Integer.MIN_VALUE");
             throw new IllegalStateException("NID should not be Integer.MIN_VALUE");
         }
@@ -751,7 +757,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             LOG.error("NID should not be 0");
             throw new IllegalStateException("NID should not be 0");
         }
-        if (nid == Integer.MAX_VALUE) {
+        if (Nid.isNotApplicable(nid)) {
             LOG.error("NID should not be Integer.MAX_VALUE");
             throw new IllegalStateException("NID should not be Integer.MAX_VALUE");
         }
@@ -760,8 +766,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             default -> {}
         }
         // The put operation does its own merge in a simpler way...
-        this.entityMap.put(rocksKeyForNid(nid), value);
-        byte[] mergedBytes = this.entityMap.get(rocksKeyForNid(nid));
+        this.entityMap.put(rocksKeyForNid(Nid.narrowChecked(nid)), value);
+        byte[] mergedBytes = this.entityMap.get(rocksKeyForNid(Nid.narrowChecked(nid)));
         if (mergedBytes == null) {
             throw new IllegalStateException("Merged bytes should not be null");
         }
@@ -837,14 +843,14 @@ ensure they're not already freed when ColumnFamilyOptions closes.
      * @throws IllegalStateException if the nid is not a pattern
      */
     @Override
-    public void forEachSemanticNidOfPattern(int patternNid, IntProcedure procedure) {
+    public void forEachSemanticNidOfPattern(long patternNid, LongProcedure procedure) {
         if (patternNid == EntityBinding.Concept.pattern().nid()
                 || patternNid == EntityBinding.Stamp.pattern().nid()
                 || patternNid == EntityBinding.Pattern.pattern().nid()) {
             return;
         }
         EntityHandle.get(patternNid).expectPattern("Trying to iterate elements for entity that is not a pattern: ");
-        forEachElementOfPattern(patternNid, procedure);
+        forEachElementOfPattern(Nid.narrowChecked(patternNid), procedure::value);
     }
 
     /** Visits every element keyed under a pattern's sequence, whatever kind of entity it is. */
@@ -855,7 +861,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEachPatternNid(IntProcedure procedure) {
+    public void forEachPatternNid(LongProcedure procedure) {
         // Diagnostic for ikmdev/komet-desktop#12 (closed): what the pattern navigator's reload sees.
         long counterValue = sequenceMap.nextSequenceMap.get(dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence()).get();
         java.util.concurrent.atomic.AtomicInteger visitedCount = new java.util.concurrent.atomic.AtomicInteger(0);
@@ -874,13 +880,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEachConceptNid(IntProcedure procedure) {
-        forEachElementOfBindingPattern(EntityBinding.Concept.pattern(), procedure);
+    public void forEachConceptNid(LongProcedure procedure) {
+        forEachElementOfBindingPattern(EntityBinding.Concept.pattern(), procedure::value);
     }
 
     @Override
-    public void forEachStampNid(IntProcedure procedure) {
-        forEachElementOfBindingPattern(EntityBinding.Stamp.pattern(), procedure);
+    public void forEachStampNid(LongProcedure procedure) {
+        forEachElementOfBindingPattern(EntityBinding.Stamp.pattern(), procedure::value);
     }
 
     /**
@@ -888,7 +894,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
      * has no key for the pattern yet, and so no elements, rather than a nid to fail to find.
      */
     private void forEachElementOfBindingPattern(EntityProxy.Pattern bindingPattern, IntProcedure procedure) {
-        bindingPatternKey(bindingPattern).ifPresent(patternKey -> forEachElementOfPattern(patternKey.nid(), procedure));
+        bindingPatternKey(bindingPattern).ifPresent(patternKey -> forEachElementOfPattern(Nid.narrowChecked(patternKey.nid()), procedure));
     }
 
     private Optional<EntityKey> bindingPatternKey(EntityProxy.Pattern bindingPattern) {
@@ -902,7 +908,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEachSemanticNid(IntProcedure procedure) {
+    public void forEachSemanticNid(LongProcedure procedure) {
         BitSet excludedPatternSequences = new BitSet();
         for (EntityProxy.Pattern bindingPattern : List.of(EntityBinding.Concept.pattern(),
                 EntityBinding.Stamp.pattern(), EntityBinding.Pattern.pattern())) {
@@ -961,13 +967,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
-    public void forEachSemanticNidForComponent(int componentNid, IntProcedure procedure) {
+    public void forEachSemanticNidForComponent(long componentNid, LongProcedure procedure) {
         ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidLayout.active().rocksKeyForNid(componentNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 
     @Override
-    public void forEachSemanticNidForComponentOfPattern(int componentNid, int patternNid, IntProcedure procedure) {
+    public void forEachSemanticNidForComponentOfPattern(long componentNid, long patternNid, LongProcedure procedure) {
         ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidLayout.active().rocksKeyForNid(componentNid), (int) NidLayout.active().decodeElementSequence(patternNid));
         referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }

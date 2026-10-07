@@ -3,7 +3,7 @@ package dev.ikm.ike.kb.validation;
 import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.elk.snomed.SnomedIsa;
-import dev.ikm.tinkar.common.id.IntIds;
+import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.Coordinates;
@@ -178,13 +178,13 @@ class SnomedTemporalClassificationIT {
             long start = System.currentTimeMillis();
             new LoadEntitiesFromProtobufFile(new File(in.getProperty(KB_FILE))).compute();
             out.setProperty("load.millis", Long.toString(System.currentTimeMillis() - start));
-            TreeSet<Integer> modules = new TreeSet<>();
+            TreeSet<Long> modules = new TreeSet<>();
             for (String sctid : SNOMED_MODULE_SCTIDS) {
                 UUID uuid = UuidUtil.fromSNOMED(sctid);
                 assertTrue(PrimitiveData.get().hasUuid(uuid), "The knowledge base has no module " + sctid);
                 modules.add(PrimitiveData.nid(uuid));
             }
-            int path = KernelTerm.DEVELOPMENT_PATH.nid();
+            long path = KernelTerm.DEVELOPMENT_PATH.nid();
             TreeSet<Long> times = new TreeSet<>();
             EntityStore.current().forEachStampNid(nid -> {
                 StampEntity<?> stamp = EntityHandle.get(nid).expectStamp();
@@ -211,7 +211,7 @@ class SnomedTemporalClassificationIT {
             String date = date(time);
             String prefix = "observed.at." + date + ".";
             StampPositionRecord position = StampPositionRecord.make(Long.parseLong(time), KernelTerm.DEVELOPMENT_PATH.nid());
-            StampCoordinateRecord stamps = StampCoordinateRecord.make(StateSet.ACTIVE, position, IntIds.set.empty());
+            StampCoordinateRecord stamps = StampCoordinateRecord.make(StateSet.ACTIVE, position, LongIds.set.empty());
             ViewCoordinateRecord coordinate = ViewCoordinateRecord.make(stamps,
                     Coordinates.Language.UsEnglishRegularName(), Coordinates.Logic.ElPlusPlus(),
                     Coordinates.Navigation.stated(), Coordinates.Edit.Default());
@@ -230,7 +230,7 @@ class SnomedTemporalClassificationIT {
             });
             out.setProperty(prefix + "active.concepts", Long.toString(active.get()));
             out.setProperty(prefix + "described.concepts", Long.toString(described.get()));
-            int snomedRoot = PrimitiveData.nid(UuidUtil.fromSNOMED("138875005"));
+            long snomedRoot = PrimitiveData.nid(UuidUtil.fromSNOMED("138875005"));
             out.setProperty(prefix + "stated.descendants.of.snomed.root",
                     Integer.toString(view.navigationCalculator().descendentsOf(snomedRoot).size()));
             ViewCalculator inferredView = ViewCalculatorWithCache.getCalculator(ViewCoordinateRecord.make(stamps,

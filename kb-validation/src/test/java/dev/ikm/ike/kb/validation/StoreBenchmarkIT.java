@@ -15,6 +15,9 @@
  */
 package dev.ikm.ike.kb.validation;
 
+import org.eclipse.collections.api.list.primitive.ImmutableLongList;
+import org.eclipse.collections.api.list.primitive.MutableLongList;
+
 import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -25,9 +28,9 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculatorWithCache;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
-import org.eclipse.collections.api.factory.primitive.IntLists;
-import org.eclipse.collections.api.list.primitive.ImmutableIntList;
-import org.eclipse.collections.api.list.primitive.MutableIntList;
+import org.eclipse.collections.api.factory.primitive.LongLists;
+import org.eclipse.collections.api.list.primitive.ImmutableLongList;
+import org.eclipse.collections.api.list.primitive.MutableLongList;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -182,19 +185,19 @@ class StoreBenchmarkIT {
         }
 
         static void measure(int rounds, Properties out) {
-            MutableIntList concepts = present(EntityStore.current()::forEachConceptNid);
-            MutableIntList patterns = present(EntityStore.current()::forEachPatternNid);
-            MutableIntList semantics = present(EntityStore.current()::forEachSemanticNid);
-            MutableIntList stamps = present(EntityStore.current()::forEachStampNid);
-            MutableIntList all = IntLists.mutable.empty();
+            MutableLongList concepts = present(EntityStore.current()::forEachConceptNid);
+            MutableLongList patterns = present(EntityStore.current()::forEachPatternNid);
+            MutableLongList semantics = present(EntityStore.current()::forEachSemanticNid);
+            MutableLongList stamps = present(EntityStore.current()::forEachStampNid);
+            MutableLongList all = LongLists.mutable.empty();
             all.addAll(concepts);
             all.addAll(patterns);
             all.addAll(semantics);
             all.addAll(stamps);
-            ImmutableIntList ordered = all.toSortedList().toImmutable();
-            ImmutableIntList shuffled = shuffle(ordered);
-            ImmutableIntList componentsShuffled = shuffle(IntLists.immutable.withAll(concepts).newWithAll(semantics));
-            int descriptionPattern = KernelTerm.DESCRIPTION_PATTERN.nid();
+            ImmutableLongList ordered = all.toSortedList().toImmutable();
+            ImmutableLongList shuffled = shuffle(ordered);
+            ImmutableLongList componentsShuffled = shuffle(LongLists.immutable.withAll(concepts).newWithAll(semantics));
+            long descriptionPattern = KernelTerm.DESCRIPTION_PATTERN.nid();
             ViewCalculator view = ViewCalculatorWithCache.getCalculator(ViewCoordinateRecord.make(
                     Coordinates.Stamp.DevelopmentLatest(), Coordinates.Language.UsEnglishRegularName(),
                     Coordinates.Logic.ElPlusPlus(), Coordinates.Navigation.inferred(), Coordinates.Edit.Default()));
@@ -234,7 +237,7 @@ class StoreBenchmarkIT {
             // The store's indexes.
             operations.put("store.semantics.of.pattern", () -> {
                 long count = 0;
-                for (int pattern : patterns.toArray()) {
+                for (long pattern : patterns.toArray()) {
                     count += EntityStore.current().semanticNidsOfPattern(pattern).length;
                 }
                 return count;
@@ -246,14 +249,14 @@ class StoreBenchmarkIT {
             });
             operations.put("store.semantics.for.component.shuffled", () -> {
                 long count = 0;
-                for (int nid : componentsShuffled.toArray()) {
+                for (long nid : componentsShuffled.toArray()) {
                     count += EntityStore.current().semanticNidsForComponent(nid).length;
                 }
                 return count;
             });
             operations.put("store.descriptions.for.concept", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     count += EntityStore.current().semanticNidsForComponentOfPattern(concept, descriptionPattern).length;
                 }
                 return count;
@@ -292,14 +295,14 @@ class StoreBenchmarkIT {
             });
             operations.put("entities.semantics.of.pattern.stream", () -> {
                 long count = 0;
-                for (int pattern : patterns.toArray()) {
+                for (long pattern : patterns.toArray()) {
                     count += entities.semanticsOfPattern(pattern).count();
                 }
                 return count;
             });
             operations.put("entities.descriptions.for.concept.stream", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     count += entities.semanticsForComponentOfPattern(concept, descriptionPattern).toList().size();
                 }
                 return count;
@@ -307,7 +310,7 @@ class StoreBenchmarkIT {
             // A membership test: has the concept any description? Stops at the first.
             operations.put("entities.has.description", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     if (entities.semanticsForComponentOfPattern(concept, descriptionPattern).findAny().isPresent()) {
                         count++;
                     }
@@ -333,7 +336,7 @@ class StoreBenchmarkIT {
             // What a view computes from them.
             operations.put("view.fully.qualified.names", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     if (view.languageCalculator().getFullyQualifiedNameText(concept).isPresent()) {
                         count++;
                     }
@@ -342,7 +345,7 @@ class StoreBenchmarkIT {
             });
             operations.put("view.regular.names", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     if (view.languageCalculator().getPreferredDescriptionTextWithFallbackOrNid(concept) != null) {
                         count++;
                     }
@@ -351,7 +354,7 @@ class StoreBenchmarkIT {
             });
             operations.put("view.parents", () -> {
                 long count = 0;
-                for (int concept : concepts.toArray()) {
+                for (long concept : concepts.toArray()) {
                     count += view.navigationCalculator().parentsOf(concept).size();
                 }
                 return count;
@@ -383,9 +386,9 @@ class StoreBenchmarkIT {
             out.setProperty(BENCH + op + COUNT, Long.toString(count));
         }
 
-        private static long readBytes(ImmutableIntList nids) {
+        private static long readBytes(ImmutableLongList nids) {
             long count = 0;
-            for (int nid : nids.toArray()) {
+            for (long nid : nids.toArray()) {
                 if (EntityStore.current().getBytes(nid) != null) {
                     count++;
                 }
@@ -393,9 +396,9 @@ class StoreBenchmarkIT {
             return count;
         }
 
-        private static long handles(ImmutableIntList nids) {
+        private static long handles(ImmutableLongList nids) {
             long count = 0;
-            for (int nid : nids.toArray()) {
+            for (long nid : nids.toArray()) {
                 if (EntityHandle.get(nid).isPresent()) {
                     count++;
                 }
@@ -403,9 +406,9 @@ class StoreBenchmarkIT {
             return count;
         }
 
-        private static MutableIntList present(NidSource source) {
+        private static MutableLongList present(NidSource source) {
             // A store may call the procedure from several threads at once.
-            MutableIntList nids = IntLists.mutable.empty().asSynchronized();
+            MutableLongList nids = LongLists.mutable.empty().asSynchronized();
             source.forEach(nid -> {
                 if (EntityHandle.get(nid).isPresent()) {
                     nids.add(nid);
@@ -414,20 +417,20 @@ class StoreBenchmarkIT {
             return nids.toSortedList();
         }
 
-        private static ImmutableIntList shuffle(ImmutableIntList nids) {
-            int[] array = nids.toArray();
+        private static ImmutableLongList shuffle(ImmutableLongList nids) {
+            long[] array = nids.toArray();
             Random random = new Random(SEED);
             for (int i = array.length - 1; i > 0; i--) {
                 int j = random.nextInt(i + 1);
-                int swap = array[i];
+                long swap = array[i];
                 array[i] = array[j];
                 array[j] = swap;
             }
-            return IntLists.immutable.with(array);
+            return LongLists.immutable.with(array);
         }
 
         private interface NidSource {
-            void forEach(org.eclipse.collections.api.block.procedure.primitive.IntProcedure procedure);
+            void forEach(org.eclipse.collections.api.block.procedure.primitive.LongProcedure procedure);
         }
     }
 

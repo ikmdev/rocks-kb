@@ -1,7 +1,7 @@
 package dev.ikm.ike.kb.validation;
 
 import dev.ikm.tinkar.common.service.internal.EntityStore;
-import dev.ikm.tinkar.common.id.IntIdList;
+import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
 import dev.ikm.tinkar.common.service.SearchService;
@@ -18,8 +18,8 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.fixtures.StoreDigest;
 import org.apache.lucene.queryparser.flexible.standard.QueryParserUtil;
-import org.eclipse.collections.api.factory.primitive.IntSets;
-import org.eclipse.collections.api.set.primitive.MutableIntSet;
+import org.eclipse.collections.api.factory.primitive.LongSets;
+import org.eclipse.collections.api.set.primitive.MutableLongSet;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -203,9 +203,9 @@ class StarterSetRoundTripIT {
 
             ViewCalculator view = Calculators.View.Default();
             // The description patterns the default view reads names from.
-            MutableIntSet descriptionPatterns = IntSets.mutable.empty();
+            MutableLongSet descriptionPatterns = LongSets.mutable.empty();
             for (LanguageCoordinateRecord language : view.languageCalculator().languageCoordinateList()) {
-                IntIdList patterns = language.descriptionPatternPreferenceNidList();
+                LongIdList patterns = language.descriptionPatternPreferenceNidList();
                 patterns.forEach(descriptionPatterns::add);
             }
 
@@ -266,7 +266,7 @@ class StarterSetRoundTripIT {
         }
 
         /** Whether a phrase search for the text returns the description itself. */
-        private static boolean foundBySearch(int nid, String text) {
+        private static boolean foundBySearch(long nid, String text) {
             try {
                 String phrase = '"' + QueryParserUtil.escape(text) + '"';
                 for (PrimitiveDataSearchResult result : PrimitiveData.get().search(phrase, 10_000)) {

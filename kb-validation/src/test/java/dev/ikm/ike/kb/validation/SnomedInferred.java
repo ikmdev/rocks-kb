@@ -1,15 +1,18 @@
 package dev.ikm.ike.kb.validation;
 
+import org.eclipse.collections.api.factory.primitive.LongLongMaps;
+import org.eclipse.collections.api.map.primitive.MutableLongLongMap;
+
 import dev.ikm.elk.snomed.SnomedIds;
 import dev.ikm.elk.snomed.SnomedIsa;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.reasoner.service.ReasonerService;
 import org.eclipse.collections.api.factory.primitive.IntLongMaps;
-import org.eclipse.collections.api.factory.primitive.IntSets;
+import org.eclipse.collections.api.factory.primitive.LongSets;
 import org.eclipse.collections.api.factory.primitive.LongSets;
 import org.eclipse.collections.api.map.primitive.MutableIntLongMap;
-import org.eclipse.collections.api.set.primitive.MutableIntSet;
+import org.eclipse.collections.api.set.primitive.MutableLongSet;
 import org.eclipse.collections.api.set.primitive.MutableLongSet;
 
 import java.io.BufferedWriter;
@@ -98,8 +101,8 @@ final class SnomedInferred {
      * the reasoner's concepts with no SNOMED counterpart at this date.
      */
     static void compare(ReasonerService reasoner, SnomedIsa snomed, Properties out, String prefix) {
-        MutableIntSet classified = IntSets.mutable.withAll(reasoner.getReasonerConceptSet());
-        MutableIntLongMap sctidOfNid = IntLongMaps.mutable.empty();
+        MutableLongSet classified = LongSets.mutable.withAll(reasoner.getReasonerConceptSet());
+        MutableLongLongMap sctidOfNid = LongLongMaps.mutable.empty();
         long notInStore = 0;
         for (long sctid : snomed.getOrderedConcepts().toArray()) {
             UUID uuid = UuidUtil.fromSNOMED(Long.toString(sctid));
@@ -121,7 +124,7 @@ final class SnomedInferred {
             if (!PrimitiveData.get().hasUuid(uuid)) {
                 continue;
             }
-            int nid = PrimitiveData.nid(uuid);
+            long nid = PrimitiveData.nid(uuid);
             if (!classified.contains(nid)) {
                 notClassified++;
                 continue;

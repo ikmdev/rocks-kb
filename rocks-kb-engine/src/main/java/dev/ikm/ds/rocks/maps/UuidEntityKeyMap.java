@@ -1,5 +1,7 @@
 package dev.ikm.ds.rocks.maps;
 
+import dev.ikm.tinkar.common.id.Nid;
+
 
 import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.id.EntityKey;
@@ -305,7 +307,7 @@ public class UuidEntityKeyMap
         if (uuids.length < 2) {
             return;
         }
-        java.util.TreeSet<Integer> nids = new java.util.TreeSet<>();
+        java.util.TreeSet<Long> nids = new java.util.TreeSet<>();
         for (UUID uuid : uuids) {
             getEntityKey(uuid).ifPresent(key -> nids.add(key.nid()));
         }
@@ -407,7 +409,7 @@ public class UuidEntityKeyMap
             return;
         }
         PublicId entityPublicId = ENTITY_PUBLIC_ID.isBound() ? ENTITY_PUBLIC_ID.get() : null;
-        int nid = entityKey.nid();
+        int nid = Nid.narrowChecked(entityKey.nid());
         int decodedPattern = NidLayout.active().decodePatternSequence(nid);
         long decodedElement = NidLayout.active().decodeElementSequence(nid);
         boolean consistent = decodedPattern == entityKey.patternSequence()

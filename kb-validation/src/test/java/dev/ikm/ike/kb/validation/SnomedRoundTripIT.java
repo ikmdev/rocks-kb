@@ -221,7 +221,7 @@ class SnomedRoundTripIT {
             });
             var descendants = view.navigationCalculator().descendentsOf(KernelTerm.ROOT_VERTEX.nid());
             AtomicLong withoutParents = new AtomicLong();
-            descendants.intStream().forEach(nid -> {
+            descendants.longStream().forEach(nid -> {
                 if (view.navigationCalculator().parentsOf(nid).isEmpty()) {
                     withoutParents.incrementAndGet();
                 }
@@ -232,7 +232,7 @@ class SnomedRoundTripIT {
             out.setProperty(QUERY + "descendants.of.root", Long.toString(descendants.size()));
             out.setProperty(QUERY + "descendants.without.parents", Long.toString(withoutParents.get()));
             for (String sctid : QUERIED_SCTIDS) {
-                int nid = PrimitiveData.nid(UuidUtil.fromSNOMED(sctid));
+                long nid = PrimitiveData.nid(UuidUtil.fromSNOMED(sctid));
                 out.setProperty(QUERY + sctid + ".name", view.getDescriptionTextOrNid(nid));
                 out.setProperty(QUERY + sctid + ".parents", Integer.toString(view.navigationCalculator().parentsOf(nid).size()));
                 out.setProperty(QUERY + sctid + ".children", Integer.toString(view.navigationCalculator().childrenOf(nid).size()));
