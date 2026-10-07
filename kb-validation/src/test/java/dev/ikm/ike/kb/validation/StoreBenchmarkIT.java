@@ -453,7 +453,7 @@ class StoreBenchmarkIT {
         return table.toString();
     }
 
-    private static String machine() {
+    static String machine() {
         try {
             Path id = Path.of(System.getProperty("user.home"), ".ike-machine-id");
             if (Files.isRegularFile(id)) {
