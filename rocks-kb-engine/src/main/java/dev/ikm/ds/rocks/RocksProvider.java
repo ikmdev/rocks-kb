@@ -78,6 +78,30 @@ public class RocksProvider implements PrimitiveDataService, EntityStore, NidGene
         return db;
     }
 
+    /**
+     * The options of a column family. Blocks are written uncompressed: on the SNOMED CT baseline
+     * (Graphlet, 2026-10-07), LZ4 took 39% off the store and ZSTD at the bottommost level 51%, but
+     * scans were 8% and 27% slower and the import 2% and 15% slower, and a store that fits in
+     * memory on a fast local disk gains nothing from being smaller (design
+     * {@code design-2026-09-30-64-bit-nids}, "RocksDB compression", deferred;
+     * IKE-Network/ike-issues#1251). RocksDB records the codec in each block, so this
+     * configuration still reads a store whose blocks are compressed.
+     *
+     * @param cf       the column family
+     * @param tableCfg its table configuration
+     * @return the options, which the caller closes
+     */
+    static ColumnFamilyOptions columnFamilyOptions(ColumnFamily cf, BlockBasedTableConfig tableCfg) {
+        ColumnFamilyOptions cfo = new ColumnFamilyOptions();
+        cfo.setCompressionType(CompressionType.NO_COMPRESSION);
+        cfo.setTableFormatConfig(tableCfg);
+        cfo.setWriteBufferSize(cf.writeBufferSize);
+        if (cf.keyPrefixBytes >= 0) {
+            cfo.useFixedLengthPrefixExtractor(cf.keyPrefixBytes);
+        }
+        return cfo;
+    }
+
     public enum ColumnFamily {
         DEFAULT(RocksDB.DEFAULT_COLUMN_FAMILY, -1, 0, 1024 * 1024),
         ENTITY_MAP("EntityMap", 2, defaultBloomFilterBitsPerKey, 512L * 1024 * 1024),
@@ -191,15 +215,7 @@ public class RocksProvider implements PrimitiveDataService, EntityStore, NidGene
                         
                         tableConfigs.add(tableCfg); // Track for cleanup
 
-                        ColumnFamilyOptions cfo = new ColumnFamilyOptions();
-                        cfo.setCompressionType(CompressionType.NO_COMPRESSION);
-                        cfo.setTableFormatConfig(tableCfg);
-                        cfo.setWriteBufferSize(cf.writeBufferSize);
-                        if (cf.keyPrefixBytes >= 0) {
-                            cfo.useFixedLengthPrefixExtractor(cf.keyPrefixBytes);
-                        }
-
-                        return new ColumnFamilyDescriptor(cf.getValue(), cfo);
+                        return new ColumnFamilyDescriptor(cf.getValue(), columnFamilyOptions(cf, tableCfg));
                     }).toList();
 
             // Don't use try-with-resources - we need to keep DBOptions alive
