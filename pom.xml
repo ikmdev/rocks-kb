@@ -11,7 +11,7 @@
 
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
-    <version>0.1.5-64bit-SNAPSHOT</version>
+    <version>0.1.5-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Rocks KB</name>
@@ -44,7 +44,7 @@
     </repositories>
 
     <properties>
-        <komet-bom.version>3.0.12-64bit-SNAPSHOT</komet-bom.version>
+        <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
         <maven.compiler.enablePreview>true</maven.compiler.enablePreview>
         <java.version>27</java.version>
         <!-- The nid build check (tinkar-core nid-check, IKE-Network/ike-issues#1244): how it
@@ -68,7 +68,7 @@
                 <dependency>
                     <groupId>dev.ikm.komet</groupId>
                     <artifactId>komet-bom</artifactId>
-                    <version>3.0.12-64bit-SNAPSHOT</version>
+                    <version>3.0.12-SNAPSHOT</version>
                     <type>pom</type>
                     <scope>import</scope>
                 </dependency>
