@@ -228,23 +228,44 @@ public class EntityMap
      * The entity's bytes, or {@code null} if the store holds no entity under the key. One seek
      * answers both: the chronology part lies under the entity's own key and its versions under
      * keys that extend it, so a seek that lands elsewhere means there is no entity.
+     * <p>A pending write holds only the versions put since the entity was last written, so when
+     * one is pending the stored versions are read too and the two are merged, each version
+     * once. Answering from the pending write alone dropped every version already written, from
+     * the bytes {@code merge} returns, which the entity layer caches, as well as from reads
+     * (IKE-Network/ike-issues#1245).
      */
     public byte[] get(long longKey) {
         WriteRecord pendingWrite = pendingWritesMap.get(longKey);
-        if (pendingWrite != null) {
-            return mergeParts(pendingWrite.entityParts);
-        }
         byte[] entityPrefix = KeyUtil.longToByteArray(longKey);
         // Read after the pending check: the epoch then covers any record that has left it.
         long epoch = readEpoch();
         RocksIterator iterator = borrowIterator(epoch);
+        MutableList<byte[]> storedParts;
         try {
             iterator.seek(entityPrefix);
-            MutableList<byte[]> parts = readParts(iterator, entityPrefix);
-            return parts == null ? null : assemble(parts);
+            storedParts = readParts(iterator, entityPrefix);
         } finally {
             returnIterator(iterator, epoch);
         }
+        if (pendingWrite == null) {
+            return storedParts == null ? null : assemble(storedParts);
+        }
+        if (storedParts == null) {
+            return mergeParts(pendingWrite.entityParts);
+        }
+        MutableList<ImmutableByteList> parts = Lists.mutable.ofInitialCapacity(
+                storedParts.size() + pendingWrite.entityParts.size() - 1);
+        parts.add(pendingWrite.entityParts.get(0));
+        for (int i = 1; i < storedParts.size(); i++) {
+            parts.add(ByteLists.immutable.of(storedParts.get(i)));
+        }
+        for (int i = 1; i < pendingWrite.entityParts.size(); i++) {
+            ImmutableByteList pendingPart = pendingWrite.entityParts.get(i);
+            if (!parts.contains(pendingPart)) {
+                parts.add(pendingPart);
+            }
+        }
+        return mergeParts(parts.toImmutable());
     }
 
 
