@@ -1103,7 +1103,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         @Override
         public int getSubPriority() {
-            return 30; // After MVStore
+            return 30; // After the spined array
         }
 
         @Override

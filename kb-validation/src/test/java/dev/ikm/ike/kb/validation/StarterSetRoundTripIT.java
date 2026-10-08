@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The IKE starter set through a store's whole life, in each store provider (Rocks, spined
- * array, MVStore, and the in-memory ephemeral store): loaded from its
+ * array, and the spined array's ephemeral mode): loaded from its
  * protobuf export; read and searched; exported; and the export loaded into a fresh store,
  * which is read and searched again and must hold what the exported store held. Each store
  * lifetime is a stage in its own JVM ({@link ForkedJvm}), started as an application starts

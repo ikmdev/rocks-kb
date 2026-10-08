@@ -15,7 +15,6 @@ enum Provider {
      */
     ROCKS_LEGACY("Open Rocks KB", true, "8-bit"),
     SPINED_ARRAY("Open SpinedArrayStore", true, null),
-    MV_STORE("Open MV Store", true, null),
     /** The spined array in its ephemeral mode: held in memory only, a store lifetime ends with its JVM. */
     EPHEMERAL("Load Ephemeral Store", false, null);
 
