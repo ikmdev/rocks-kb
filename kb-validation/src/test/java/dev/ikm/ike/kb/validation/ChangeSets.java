@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.tinkar.entity.changeset.ChangeSetFormat;
 import dev.ikm.tinkar.entity.export.ExportEntitiesToProtobufFile;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
@@ -41,6 +42,8 @@ final class ChangeSets {
 
     static final String MANIFEST = "META-INF/MANIFEST.MF";
     static final String IDENTITY_INDEX = "META-INF/identities.pb";
+    static final String COMPONENT_TABLE = "META-INF/components.pb";
+    static final String REFERENCE_TABLE = "META-INF/references.pb";
     static final String FORMAT_VERSION = "Ike-Format-Version";
 
     /** The files a stage loads, in order, separated by {@link File#pathSeparator}. */
@@ -89,16 +92,16 @@ final class ChangeSets {
     }
 
     /** The file's records, each as its bytes in the file: the length prefix and the message. */
+    /** Every record, in file order, as its delimited bytes: a format-3 entry is a gzip stream, inflated here. */
     static List<byte[]> records(File file) throws IOException {
         List<byte[]> records = new ArrayList<>();
         try (ZipFile zip = new ZipFile(file)) {
-            Enumeration<? extends ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
-                if (entry.getName().startsWith("META-INF/")) {
-                    continue;
+            Manifest manifest = ChangeSetFormat.manifest(zip).orElseGet(Manifest::new);
+            for (ChangeSetFormat.RecordEntry recordEntry : ChangeSetFormat.recordEntries(zip, manifest)) {
+                byte[] bytes;
+                try (InputStream in = ChangeSetFormat.openRecords(zip, recordEntry.entry())) {
+                    bytes = in.readAllBytes();
                 }
-                byte[] bytes = zip.getInputStream(entry).readAllBytes();
                 int position = 0;
                 while (position < bytes.length) {
                     int start = position;
@@ -165,22 +168,29 @@ final class ChangeSets {
             }
         }
         lines.addFirst(name + ": " + value);
-        return rewrite(source, target, records(source), String.join(newline, lines).getBytes(StandardCharsets.UTF_8));
+        return rewrite(source, target, null, String.join(newline, lines).getBytes(StandardCharsets.UTF_8));
     }
 
     /** Writes the records as one entry, then the source's META-INF entries, the manifest replaced if given. */
+    /**
+     * A copy with the records replaced by {@code records} in one "Entities" entry (the format-1
+     * and format-2 layout), or with every record entry copied as it is when {@code records} is
+     * null; and with the manifest replaced when {@code manifest} is given.
+     */
     private static File rewrite(File source, File target, List<byte[]> records, byte[] manifest) throws IOException {
         try (ZipFile in = new ZipFile(source);
              ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(target.toPath()))) {
-            out.putNextEntry(new ZipEntry("Entities"));
-            for (byte[] record : records) {
-                out.write(record);
+            if (records != null) {
+                out.putNextEntry(new ZipEntry("Entities"));
+                for (byte[] record : records) {
+                    out.write(record);
+                }
+                out.closeEntry();
             }
-            out.closeEntry();
             Enumeration<? extends ZipEntry> entries = in.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
-                if (!entry.getName().startsWith("META-INF/")) {
+                if (!entry.getName().startsWith("META-INF/") && records != null) {
                     continue;
                 }
                 out.putNextEntry(new ZipEntry(entry.getName()));

@@ -3,7 +3,7 @@ package dev.ikm.ike.kb.validation;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Message;
 import dev.ikm.tinkar.fixtures.StoreDigest;
-import dev.ikm.tinkar.schema.PatternMembers;
+import dev.ikm.tinkar.entity.changeset.ComponentTable;
 import dev.ikm.tinkar.schema.PublicId;
 import dev.ikm.tinkar.schema.TinkarMsg;
 import dev.ikm.tinkar.schema.VertexUUID;
@@ -16,7 +16,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
+import java.util.zip.ZipFile;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -25,14 +25,13 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 
 import static dev.ikm.ike.kb.validation.ChangeSets.FORMAT_VERSION;
 import static dev.ikm.ike.kb.validation.ChangeSets.IDENTITY_INDEX;
 import static dev.ikm.ike.kb.validation.ChangeSets.LOADED;
-import static dev.ikm.ike.kb.validation.ChangeSets.entry;
+import static dev.ikm.ike.kb.validation.ChangeSets.COMPONENT_TABLE;
 import static dev.ikm.ike.kb.validation.ChangeSets.load;
 import static dev.ikm.ike.kb.validation.ChangeSets.loadAndExport;
 import static dev.ikm.ike.kb.validation.ChangeSets.manifest;
@@ -41,11 +40,9 @@ import static dev.ikm.ike.kb.validation.ChangeSets.publicIdOf;
 import static dev.ikm.ike.kb.validation.ChangeSets.recordBytes;
 import static dev.ikm.ike.kb.validation.ChangeSets.records;
 import static dev.ikm.ike.kb.validation.ChangeSets.resource;
-import static dev.ikm.ike.kb.validation.ChangeSets.reverseRecords;
 import static dev.ikm.ike.kb.validation.ChangeSets.withManifestAttribute;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,11 +67,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>The starter set comes from the frozen format version 1 fixture, so these tests also
  * carry version 1 data into version 2. Each store lifetime is a stage in its own JVM.
  */
-class FormatVersion2IT {
+class FormatVersion3IT {
 
-    private static final Logger LOG = LoggerFactory.getLogger(FormatVersion2IT.class);
+    private static final Logger LOG = LoggerFactory.getLogger(FormatVersion3IT.class);
 
-    private static final String TEST = "format-v2";
+    private static final String TEST = "format-v3";
 
     /** A version 2 export of the starter set, written once from the ephemeral store, for the store-independent tests. */
     private static File export;
@@ -88,118 +85,137 @@ class FormatVersion2IT {
 
     @ParameterizedTest
     @EnumSource(Provider.class)
-    void theStarterSetIsExportedInFormatVersion2AndRestoredUnchanged(Provider provider) throws IOException {
+    void theStarterSetIsExportedInFormatVersion3AndRestoredUnchanged(Provider provider) throws IOException {
         File starterSet = resource(FormatVersion1ReadIT.STARTER_SET);
         Path work = ChangeSets.work(TEST, provider, "round-trip");
         File first = work.resolve("export-pb.zip").toFile();
         File second = work.resolve("re-export-pb.zip").toFile();
-        File reversed = work.resolve("reversed-export-pb.zip").toFile();
-
-        // Version 1 in, version 2 out; that export restored and exported again
+        // Version 1 in, version 3 out; that export restored and exported again
         StoreDigest loaded = StoreDigest.load(loadAndExport(provider, ChangeSets.work(TEST, provider, "load"), first, starterSet), LOADED);
         StoreDigest restored = StoreDigest.load(loadAndExport(provider, ChangeSets.work(TEST, provider, "restore"), second, first), LOADED);
-        // Every reference a forward reference, loaded in one pass: only the identity index makes that possible on Rocks
-        reverseRecords(first, reversed);
-        StoreDigest onePass = load(TEST, provider, "one-pass", "one-pass", reversed);
-
-        List<Executable> checks = new ArrayList<>(formatVersion2Checks(first));
+        List<Executable> checks = new ArrayList<>(formatVersion3Checks(first));
         checks.add(() -> assertEquals(List.of(), restored.differencesFrom(loaded),
-                "The store restored from the version 2 export, against the store loaded from version 1"));
+                "The store restored from the version 3 export, against the store loaded from version 1"));
         checks.add(() -> assertEquals(List.of(), differences(records(first), records(second)),
                 "Records of the first export, against the export of the store restored from it, byte for byte"));
-        checks.add(() -> assertTrue(Objects.equals(index(first), index(second)),
-                "The export of the restored store lists the identities of the first export"));
-        checks.add(() -> assertEquals(List.of(), onePass.differencesFrom(loaded),
-                "The store loaded in one pass from the export's records reversed, against the store loaded from version 1"));
+        checks.add(() -> assertEquals(tableSummary(first), tableSummary(second),
+                "The export of the restored store lists the components of the first export, in the same order"));
         assertAll(provider.name(), checks);
     }
 
     @Test
     void aNewerFormatVersionIsRefused() throws IOException {
         Path work = ChangeSets.work(TEST, Provider.EPHEMERAL, "newer-version");
-        File newer = withManifestAttribute(export, work.resolve("version-3-pb.zip").toFile(), FORMAT_VERSION, "3");
+        File newer = withManifestAttribute(export, work.resolve("version-4-pb.zip").toFile(), FORMAT_VERSION, "4");
 
         AssertionError refused = assertThrows(AssertionError.class,
                 () -> load(TEST, Provider.EPHEMERAL, "newer-version-store", newer),
-                "A changeset of format version 3 is loaded by a reader that knows version 2 at most");
-        assertTrue(refused.getMessage().contains(FORMAT_VERSION) && refused.getMessage().contains("3"),
+                "A changeset of format version 4 is loaded by a reader that knows version 3 at most");
+        assertTrue(refused.getMessage().contains(FORMAT_VERSION) && refused.getMessage().contains("4"),
                 "The refusal names the format version it does not know:\n" + refused.getMessage());
     }
 
     @Test
-    void formatVersion2IsSmallerThanFormatVersion1() throws IOException {
+    void formatVersion3IsSmallerThanFormatVersion1() throws IOException {
         File starterSet = resource(FormatVersion1ReadIT.STARTER_SET);
         long version1 = recordBytes(starterSet);
-        long version2 = recordBytes(export);
-        LOG.info("Starter set records: format version 1 {} bytes ({} compressed), format version 2 {} bytes ({} compressed): {}%",
-                version1, starterSet.length(), version2, export.length(), 100 * version2 / version1);
-        assertTrue(version2 < version1, "Format version 2 records take " + version2
+        long version3 = recordBytes(export);
+        LOG.info("Starter set records: format version 1 {} bytes ({} compressed), format version 3 {} bytes ({} compressed): {}%",
+                version1, starterSet.length(), version3, export.length(), 100 * version3 / version1);
+        assertTrue(version3 < version1, "Format version 3 records take " + version3
                 + " bytes; the same records in format version 1 take " + version1);
     }
 
     /** The checks a file must pass to be format version 2, each reported on its own. */
-    private static List<Executable> formatVersion2Checks(File file) throws IOException {
+    /**
+     * The format-3 shape: the manifest names version 3; the component table is there and the
+     * identity index is not; every record names itself by UUID words and every reference by
+     * sequence; and the table lists each record's component, in file order, under its pattern.
+     */
+    private static List<Executable> formatVersion3Checks(File file) throws IOException {
         List<Executable> checks = new ArrayList<>();
-        checks.add(() -> assertEquals("2", manifest(file).getValue(FORMAT_VERSION), "The manifest's " + FORMAT_VERSION));
-
+        checks.add(() -> assertEquals("3", manifest(file).getValue(FORMAT_VERSION), "The manifest's " + FORMAT_VERSION));
+        checks.add(() -> assertTrue(ChangeSets.hasEntry(file, COMPONENT_TABLE), "No component table, " + COMPONENT_TABLE));
+        checks.add(() -> assertTrue(!ChangeSets.hasEntry(file, IDENTITY_INDEX), "An identity index beside the component table"));
         List<TinkarMsg> records = parsedRecords(file);
-        List<String> textUuids = new ArrayList<>();
+        List<String> wrongIds = new ArrayList<>();
         for (TinkarMsg record : records) {
+            PublicId own = publicIdOf(record);
+            if (!isLongs(own)) {
+                wrongIds.add("own id not written as longs: " + own.toString().strip());
+            }
             forEachMessage(record, message -> {
-                if (message instanceof PublicId publicId && !isLongs(publicId)) {
-                    textUuids.add(publicId.toString().strip());
+                if (message instanceof PublicId publicId && publicId != own && !isSequence(publicId)) {
+                    wrongIds.add("reference not written as a sequence: " + publicId.toString().strip());
                 } else if (message instanceof VertexUUID vertex && (!vertex.getUuid().isEmpty()
                         || (vertex.getMostSignificantBits() == 0 && vertex.getLeastSignificantBits() == 0))) {
-                    textUuids.add(vertex.toString().strip());
+                    wrongIds.add(vertex.toString().strip());
                 }
             });
         }
-        checks.add(() -> assertEquals(List.of(), textUuids.stream().limit(5).toList(),
-                textUuids.size() + " UUIDs in the records are not written as longs alone; the first five"));
-
+        checks.add(() -> assertEquals(List.of(), wrongIds.stream().limit(5).toList(),
+                wrongIds.size() + " ids in the records are not in the format-3 form; the first five"));
         checks.add(() -> {
-            Map<List<UUID>, List<UUID>> index = index(file);
-            assertNotNull(index, "No identity index, " + IDENTITY_INDEX);
-            assertEquals(records.size(), index.size(), "Components the index lists, against records in the file");
+            List<ComponentTable.Component> table = table(file);
+            Map<List<UUID>, ComponentTable.Component> byId = new HashMap<>();
+            table.forEach(component -> byId.put(List.of(component.uuids()), component));
             List<String> wrong = new ArrayList<>();
+            int previous = 0;
             for (TinkarMsg record : records) {
                 List<UUID> component = uuids(publicIdOf(record));
-                List<UUID> expected = expectedPattern(record);
-                if (!expected.equals(index.get(component))) {
-                    wrong.add(component + " listed under " + index.get(component) + ", not " + expected);
+                ComponentTable.Component listed = byId.get(component);
+                if (listed == null) {
+                    wrong.add(component + " not listed");
+                    continue;
+                }
+                if (listed.referencedOnly()) {
+                    wrong.add(component + " listed as referenced only, though its record is carried");
+                }
+                if (listed.sequence() <= previous) {
+                    wrong.add(component + " at sequence " + listed.sequence() + " after " + previous + ": not in file order");
+                }
+                previous = listed.sequence();
+                List<UUID> expected = expectedPattern(record, table);
+                List<UUID> pattern = List.of(table.get(listed.patternSequence() - 1).uuids());
+                if (!expected.equals(pattern)) {
+                    wrong.add(component + " listed under " + pattern + ", not " + expected);
                 }
             }
             assertEquals(List.of(), wrong.stream().limit(5).toList(),
-                    wrong.size() + " components the index lists under the wrong pattern, or not at all; the first five");
+                    wrong.size() + " components the table lists wrongly, or not at all; the first five");
         });
         return checks;
     }
 
-    /** Component to pattern, as the file's identity index lists them, or null if it has none; fails on a component listed twice. */
-    private static Map<List<UUID>, List<UUID>> index(File file) throws IOException {
-        byte[] bytes = entry(file, IDENTITY_INDEX);
-        if (bytes == null) {
-            return null;
+    /** The component table, carried then referenced, in order. */
+    private static List<ComponentTable.Component> table(File file) throws IOException {
+        List<ComponentTable.Component> components = new ArrayList<>();
+        try (ZipFile zip = new ZipFile(file)) {
+            ComponentTable.forEach(zip, components::add);
         }
-        Map<List<UUID>, List<UUID>> index = new HashMap<>();
-        ByteArrayInputStream in = new ByteArrayInputStream(bytes);
-        PatternMembers members;
-        while ((members = PatternMembers.parseDelimitedFrom(in)) != null) {
-            assertTrue(isLongs(members.getPatternPublicId()), "The index writes a pattern's UUIDs as text");
-            List<UUID> pattern = uuids(members.getPatternPublicId());
-            for (PublicId component : members.getComponentPublicIdsList()) {
-                assertTrue(isLongs(component), "The index writes a component's UUIDs as text");
-                List<UUID> previous = index.put(uuids(component), pattern);
-                assertTrue(previous == null, "The index lists " + uuids(component) + " more than once");
-            }
-        }
-        return index;
+        return components;
     }
 
-    /** The pattern a record's component is an element of: a semantic names its own; the others have their kind's. */
-    private static List<UUID> expectedPattern(TinkarMsg record) {
+    /** The table as comparable lines: sequence, pattern sequence, UUIDs, and whether referenced only. */
+    private static List<String> tableSummary(File file) throws IOException {
+        List<String> lines = new ArrayList<>();
+        for (ComponentTable.Component component : table(file)) {
+            lines.add(component.sequence() + ":" + component.patternSequence() + ":" + List.of(component.uuids()) + ":" + component.referencedOnly());
+        }
+        return lines;
+    }
+
+    private static boolean isSequence(PublicId publicId) {
+        return publicId.hasSequence() && publicId.getSequence() > 0 && publicId.getUuidsCount() == 0 && publicId.getUuidBitsCount() == 0;
+    }
+
+    /** The pattern a record's component belongs under; a semantic names its own, by sequence in format 3. */
+    private static List<UUID> expectedPattern(TinkarMsg record, List<ComponentTable.Component> table) {
         return switch (record.getValueCase()) {
-            case SEMANTIC_CHRONOLOGY -> uuids(record.getSemanticChronology().getPatternForSemanticPublicId());
+            case SEMANTIC_CHRONOLOGY -> {
+                PublicId pattern = record.getSemanticChronology().getPatternForSemanticPublicId();
+                yield isSequence(pattern) ? List.of(table.get(pattern.getSequence() - 1).uuids()) : uuids(pattern);
+            }
             case CONCEPT_CHRONOLOGY -> EntityBinding.Concept.pattern().publicId().asUuidList().castToList();
             case PATTERN_CHRONOLOGY -> EntityBinding.Pattern.pattern().publicId().asUuidList().castToList();
             case STAMP_CHRONOLOGY -> EntityBinding.Stamp.pattern().publicId().asUuidList().castToList();
