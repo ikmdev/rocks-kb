@@ -9,7 +9,7 @@ import dev.ikm.tinkar.entity.EntityService;
 module dev.ikm.rocks.engine {
     exports dev.ikm.ds.rocks;
     exports dev.ikm.ds.rocks.spliterator;
-    exports dev.ikm.ds.rocks.tasks;
+    exports dev.ikm.ds.rocks64;
     requires dev.ikm.jpms.activej.bytebuf;
     requires dev.ikm.jpms.protobuf;
     requires dev.ikm.rocksdb.jpms;

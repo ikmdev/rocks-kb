@@ -143,12 +143,15 @@ class StoreBenchmarkIT {
                 "entities.descriptions.for.concept.stream");
         same(checks, result, "store.scan", "entities.every", "entities.every.parallel", "entities.count");
 
+        // Written every run, as the SNOMED CT baseline writes its measures: a run that beats
+        // its reference, or measures a new engine, is adopted by copying the file.
+        Path written = write(machine, provider, timings, agents);
         Properties reference = reference(machine, provider);
         if (reference == null) {
-            Path written = write(machine, provider, timings, agents);
             LOG.warn("No benchmark reference for {} on {}; this run's timings are in {}. "
                     + "Copy it to src/test/resources/benchmarks/{}/ to adopt it.", provider, machine, written, machine);
         } else {
+            LOG.info("This run's timings are in {}", written);
             String referenceAgents = reference.getProperty(ForkedJvm.AGENTS_PROPERTY);
             if (referenceAgents != null) {
                 checks.add(() -> assertEquals(referenceAgents, agents,

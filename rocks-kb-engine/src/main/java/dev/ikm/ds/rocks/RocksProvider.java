@@ -1,6 +1,8 @@
 package dev.ikm.ds.rocks;
 
 import dev.ikm.tinkar.common.id.Nid;
+import dev.ikm.ds.rocks64.Rocks64Store;
+import dev.ikm.ds.rocks64.StoreFormat;
 
 import java.util.function.ObjLongConsumer;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
@@ -51,7 +53,14 @@ import java.util.function.ObjIntConsumer;
 
 import static dev.ikm.tinkar.common.service.PrimitiveData.SCOPED_PATTERN_PUBLICID_FOR_NID;
 
-public class RocksProvider implements PrimitiveDataService, EntityStore, NidGenerator {
+/**
+ * The legacy Rocks engine, for stores in the 6-bit and 8-bit nid layouts: keys packed from a
+ * pattern sequence and an element sequence, one key per version, UUIDs mapped in memory and
+ * flushed. It gets fixes only; the 64-bit engine, {@link dev.ikm.ds.rocks64.Rocks64Store}, is
+ * where new work goes, and the controllers below choose between the two by the store's format
+ * (design {@code design-2026-10-07-64-bit-rocks-store}, "One engine or two").
+ */
+public class RocksProvider implements RocksEngine, NidGenerator {
     private static final Logger LOG = LoggerFactory.getLogger(RocksProvider.class);
     public static final long defaultCacheSize = 256L * 1024 * 1024; // 256 MB cache
     public static final int defaultBloomFilterBitsPerKey = 10;
@@ -148,14 +157,20 @@ public class RocksProvider implements PrimitiveDataService, EntityStore, NidGene
     }
 
 
+    /** The running legacy engine, opened on the configured data root if none is running. */
     public static RocksProvider get() {
-        try {
-            return stableProvider.orElseSet(RocksProvider::new);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+        synchronized (stableProvider) {
+            RocksProvider existing = stableProvider.get();
+            if (existing != null && existing.running()) {
+                return existing;
+            }
+            RocksProvider opened = new RocksProvider();
+            stableProvider.set(opened);
+            return opened;
         }
     }
-    private static final SetOnce<RocksProvider> stableProvider = new SetOnce<>();
+    private static final java.util.concurrent.atomic.AtomicReference<RocksProvider> stableProvider =
+            new java.util.concurrent.atomic.AtomicReference<>();
 
     private final Cache blockCache;
     private final AtomicBoolean closing = new AtomicBoolean(false);
@@ -822,7 +837,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     private void forEachElementOfPattern(int patternNid, IntProcedure procedure) {
         int patternSequence = (int) NidLayout.active().decodeElementSequence(patternNid);
         LongSpliteratorOfPattern spliteratorOfPattern = this.sequenceMap.spliteratorOfPattern(patternSequence);
-        spliteratorOfPattern.forEachRemaining((LongConsumer) rocksKey -> procedure.accept(NidLayout.active().nidForRocksKey(rocksKey)));
+        spliteratorOfPattern.forEachRemaining((LongConsumer) rocksKey -> procedure.accept(Nid.narrowChecked(NidLayout.active().nidForRocksKey(rocksKey))));
     }
 
     @Override
@@ -833,7 +848,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         LOG.debug("forEachPatternNid: iterating PATTERN_PATTERN_SEQUENCE={} element range [1, {})",
                 dev.ikm.ds.rocks.maps.SequenceMap.patternPatternSequence(), counterValue);
         sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) rocksKey -> {
-            int nid = NidLayout.active().nidForRocksKey(rocksKey);
+            int nid = Nid.narrowChecked(NidLayout.active().nidForRocksKey(rocksKey));
             // The binding patterns hold a sequence here whether or not a pattern was written
             // for them; a pattern no entity stands behind is not a pattern of this store.
             if (getBytes(nid) != null) {
@@ -939,27 +954,57 @@ ensure they're not already freed when ColumnFamilyOptions closes.
      * Base Controller for RocksProvider lifecycle management.
      * <p>     * Handles heavyweight initialization including data loading and indexing.
      */
-    public abstract static class Controller extends ProviderController<RocksProvider>
+    public abstract static class Controller extends ProviderController<RocksEngine>
             implements DataServiceController<PrimitiveDataService> {
 
+        /**
+         * Test-only: {@code -Drocks.newStoreLayout=8-bit} or {@code 6-bit} creates a new store
+         * with the legacy engine in that layout, so the legacy conformance suite runs on an
+         * empty directory and a DeX-sized comparison store can be made.
+         */
+        public static final String NEW_STORE_LAYOUT_PROPERTY = "rocks.newStoreLayout";
+
         @Override
-        protected RocksProvider createProvider() throws Exception {
-            return RocksProvider.get();
+        protected RocksEngine createProvider() throws Exception {
+            return openEngine();
+        }
+
+        /**
+         * The engine for the store at the configured data root: the 64-bit engine for a store
+         * that names its format and for a new store, the legacy engine for every other existing
+         * store.
+         */
+        static RocksEngine openEngine() {
+            File root = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
+            File rocks = new File(root, "rocks");
+            if (StoreFormat.isSixtyFourBit(rocks)) {
+                return Rocks64Store.open();
+            }
+            if (StoreFormat.holdsADatabase(rocks)) {
+                LOG.info("{} holds a store in a legacy nid layout; opening it with the legacy engine", root);
+                return RocksProvider.get();
+            }
+            String layout = System.getProperty(NEW_STORE_LAYOUT_PROPERTY);
+            if ("8-bit".equals(layout) || "6-bit".equals(layout)) {
+                LOG.warn("{} is set to {}: creating {} with the legacy engine", NEW_STORE_LAYOUT_PROPERTY, layout, root);
+                return RocksProvider.get();
+            }
+            return Rocks64Store.open();
         }
 
         @Override
-        protected void startProvider(RocksProvider provider) {
-            // Provider starts itself during get()
+        protected void startProvider(RocksEngine provider) {
+            // An engine opens itself when created.
         }
 
         @Override
-        protected void stopProvider(RocksProvider provider) {
+        protected void stopProvider(RocksEngine provider) {
             provider.close();
         }
 
         @Override
-        protected void cleanupProvider(RocksProvider provider) throws Exception {
-            // save() is already called in close(), no need to call it again
+        protected void cleanupProvider(RocksEngine provider) throws Exception {
+            // close() saves; nothing remains to do.
         }
 
         @Override
@@ -994,7 +1039,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         @Override
         public boolean running() {
-            RocksProvider provider = getProvider();
+            RocksEngine provider = getProvider();
             return provider != null && provider.running();
         }
 
@@ -1010,7 +1055,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         @Override
         public void save() {
-            RocksProvider provider = getProvider();
+            RocksEngine provider = getProvider();
             if (provider != null) {
                 provider.save();
             }
@@ -1154,8 +1199,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         }
 
         @Override
-        protected RocksProvider createProvider() throws Exception {
-            // Ensure DATA_STORE_ROOT is set before RocksProvider is constructed.
+        protected RocksEngine createProvider() throws Exception {
+            // Ensure DATA_STORE_ROOT is set before the engine is constructed.
             File rootFolder = new File(System.getProperty("user.home"), "Solor");
             String folderName = providerProperties.get(NEW_FOLDER_PROPERTY);
             if (folderName == null || folderName.isBlank()) {
@@ -1165,11 +1210,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             ServiceProperties.set(ServiceKeys.DATA_STORE_EXPECT_EMPTY, Boolean.TRUE);
             assertNewDataDirectory(dataDirectory);
             ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, dataDirectory);
-            return RocksProvider.get();
+            return openEngine();
         }
 
         @Override
-        protected void initializeProvider(RocksProvider provider) throws Exception {
+        protected void initializeProvider(RocksEngine provider) throws Exception {
             try {
                 loading.set(true);
                 // Set up the data directory from properties

@@ -29,7 +29,7 @@
         <!-- The IKE starter set the starter-set round trip starts from, from starter-data-ws. -->
         <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
         <starter.set.data.directory>${project.build.directory}/data</starter.set.data.directory>
-        <test.excludedGroups>snomed,starter-set</test.excludedGroups>
+        <test.excludedGroups>snomed,starter-set,dex</test.excludedGroups>
         <maven.deploy.skip>true</maven.deploy.skip>
         <!-- Tests only: no jar is made, so there is nothing to install either. -->
         <maven.install.skip>true</maven.install.skip>
@@ -243,13 +243,22 @@
     </build>
 
     <profiles>
+        <!-- Runs the test tagged "dex": the legacy DeX store named by -Ddex.store exported, the
+             export loaded into a 64-bit store and into a legacy store, and the digests compared
+             (hours); -Ddex.export=<zip> starts from an export already made. -->
+        <profile>
+            <id>dex</id>
+            <properties>
+                <test.excludedGroups>snomed,starter-set</test.excludedGroups>
+            </properties>
+        </profile>
         <!-- Runs the tests tagged "snomed": fetches the SNOMED CT knowledge base (from
              private-assets, which needs credentials) and SNOMED's full inferred
              relationships, and lets failsafe run them. -->
         <profile>
             <id>snomed</id>
             <properties>
-                <test.excludedGroups>starter-set</test.excludedGroups>
+                <test.excludedGroups>starter-set,dex</test.excludedGroups>
             </properties>
             <build>
                 <plugins>
@@ -307,7 +316,7 @@
         <profile>
             <id>starter-set</id>
             <properties>
-                <test.excludedGroups>snomed</test.excludedGroups>
+                <test.excludedGroups>snomed,dex</test.excludedGroups>
             </properties>
             <build>
                 <plugins>

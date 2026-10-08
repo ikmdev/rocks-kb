@@ -1,6 +1,8 @@
 package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.tinkar.common.id.EntityKey;
+import dev.ikm.ds.rocks.RocksProvider;
+import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.tinkar.common.id.impl.KeyUtil;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
@@ -80,7 +82,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
 
         for (Map.Entry<Integer, AtomicLong> entry : nextSequenceMap.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList()) {
             EntityKey patternKey = EntityKey.of(patternPatternSequence(), entry.getKey());
-            int patternNid = NidLayout.active().encode(patternKey.patternSequence(), patternKey.elementSequence());
+            int patternNid = Nid.narrowChecked(NidLayout.active().encode(patternKey.patternSequence(), patternKey.elementSequence()));
             String patternName = PrimitiveData.textWithNid(patternNid);
             sequenceReport.append(String.format("%,d=%,d, ", entry.getKey(), entry.getValue().get()));
             sequenceReport.append(String.format(
@@ -133,8 +135,12 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
                     LOG.info("SequenceMap.open() - {} nid layout", layout.displayName());
                 }
             } else {
-                // A new database always gets the current layout.
-                NidLayout.activate(NidLayout.EIGHT_BIT);
+                // A new database gets the legacy engine's current layout, 8-bit, unless the
+                // test-only rocks.newStoreLayout asks for 6-bit (a DeX-sized comparison store:
+                // the 8-bit layout's 16,777,215 elements per pattern are too few for DeX,
+                // IKE-Network/ike-issues#1258).
+                NidLayout.activate("6-bit".equals(System.getProperty(RocksProvider.Controller.NEW_STORE_LAYOUT_PROPERTY))
+                        ? NidLayout.SIX_BIT : NidLayout.EIGHT_BIT);
                 LOG.info("═══════════════════════════════════════════════════════════");
                 LOG.info("SequenceMap.open() - Empty DB, initializing bootstrap state");
                 LOG.info("  Setting pattern[{}] = {} (PATTERN_PATTERN_SEQUENCE)", 

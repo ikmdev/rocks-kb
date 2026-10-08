@@ -5,19 +5,27 @@ import java.util.List;
 
 /** The store providers the knowledge base is validated against, by controller name. */
 enum Provider {
-    ROCKS("Open Rocks KB", true),
-    SPINED_ARRAY("Open SpinedArrayStore", true),
-    MV_STORE("Open MV Store", true),
+    /** The Rocks provider; a new store is a 64-bit one (IKE-Network/ike-issues#1258). */
+    ROCKS("Open Rocks KB", true, null),
+    /** The Rocks provider creating its store with the legacy engine, in the 8-bit layout. */
+    ROCKS_LEGACY("Open Rocks KB", true, "8-bit"),
+    /** The legacy engine in the 6-bit layout, which holds more elements per pattern than 8-bit (DeX needs it). */
+    ROCKS_6BIT("Open Rocks KB", true, "6-bit"),
+    SPINED_ARRAY("Open SpinedArrayStore", true, null),
+    MV_STORE("Open MV Store", true, null),
     /** Held in memory only: a store lifetime ends with its JVM. */
-    EPHEMERAL("Load Ephemeral Store", false);
+    EPHEMERAL("Load Ephemeral Store", false, null);
 
     final String controllerName;
     /** Whether a store outlives the JVM that wrote it, so it can be closed and reopened. */
     final boolean persistent;
+    /** The layout a new store is created in, through {@code rocks.newStoreLayout}; null for the engine's default. */
+    final String newStoreLayout;
 
-    Provider(String controllerName, boolean persistent) {
+    Provider(String controllerName, boolean persistent, String newStoreLayout) {
         this.controllerName = controllerName;
         this.persistent = persistent;
+        this.newStoreLayout = newStoreLayout;
     }
 
     /**

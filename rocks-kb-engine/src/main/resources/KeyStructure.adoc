@@ -316,3 +316,49 @@ Future component types or additional fields can be added by allocating new value
 - All integer fields are stored in big-endian order to preserve lexicographic sort order.
 - Binary encoding enables fast prefix scans and range queries in RocksDB.
 - Interpretation of the additional integer field **must** be consistent for each component type.
+
+[id="sixty-four-bit-store"]
+= The 64-bit store (`dev.ikm.ds.rocks64`)
+
+Everything above describes the legacy engine, `dev.ikm.ds.rocks`, which keys a store by a
+pattern sequence packed with an element sequence into an `int` nid (the 6-bit and 8-bit
+layouts) and holds one key per version. The 64-bit engine (design
+`design-2026-10-07-64-bit-rocks-store`, IKE-Network/ike-issues#1258) shares none of that
+code. Its nid is a `long`, the pattern sequence in the upper 32 bits over the element
+sequence in the lower 32 (`Nid.compose64`), and the nid is the key: nothing is packed or
+decoded, and a pattern's elements are one contiguous key range.
+
+.Column families of a 64-bit store
+[cols="1,2,5", options="header" frame=ends, grid=none]
+|===
+|Family
+|Key -> value
+|Holds
+
+|`default`
+|`int` pattern sequence (4 bytes) -> `int` next element sequence (4 bytes)
+|The counters, saved at every `save`; at open each is raised to one past the highest key of its pattern, so the keys are the truth and a crash cannot reissue a sequence.
+
+|`Entities`
+|nid (8 bytes, big-endian) -> one format 2 record
+|The entity: chronology and every version in one value, written behind by one writer thread as a union with what is stored, read as the union of what is pending and what is stored.
+
+|`References`
+|referenced nid (8) + referencing nid (8) -> nothing
+|The semantics referencing a component: a prefix range of 8 bytes, or of 12 with the referencing pattern's sequence; prefix extractor of 8 bytes.
+
+|`Identities`
+|UUID (16 bytes) -> nid (8 bytes)
+|Every UUID of a component, written through the write-ahead log at save, at close, and every million new identities.
+
+|`StoreFormat`
+|name -> text
+|`layout` (`64-bit`), `entityFormat` (`2`), `createdBy`, `createdAt`. RocksDB refuses to open a database whose families the opener did not list, so an older build stops at open; this build tells a 64-bit store from a legacy one by this family's presence.
+|===
+
+Three sequences are fixed (settled 2026-10-07): the pattern-of-patterns is pattern 1 and element 1 of itself,
+the concept pattern is element 2, the stamp pattern element 3, each under its governed
+`EntityBinding` UUIDs; every other pattern is an element of pattern 1 from 4 on, and a
+pattern's own sequence is its element sequence there. Every nid is minted under a pattern
+(`IdentityMap`), so a semantic's pattern, a concept's and a stamp's kind are read from the nid
+alone, and the enumerations by kind are arithmetic over the counters.

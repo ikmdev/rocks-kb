@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.tinkar.common.service.CachingService;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.ServiceKeys;
@@ -39,6 +40,11 @@ abstract class StoreStage implements ForkedJvm.Stage {
         }
         CachingService.clearAll();
         ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, store);
+        if (provider.newStoreLayout == null) {
+            System.clearProperty(RocksProvider.Controller.NEW_STORE_LAYOUT_PROPERTY);
+        } else {
+            System.setProperty(RocksProvider.Controller.NEW_STORE_LAYOUT_PROPERTY, provider.newStoreLayout);
+        }
         configure(in);
         PrimitiveData.selectControllerByName(provider.controllerName);
         long start = System.currentTimeMillis();
