@@ -118,11 +118,6 @@
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>data-ephemeral-provider</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>dev.ikm.tinkar</groupId>
             <artifactId>common</artifactId>
             <scope>test</scope>
         </dependency>
