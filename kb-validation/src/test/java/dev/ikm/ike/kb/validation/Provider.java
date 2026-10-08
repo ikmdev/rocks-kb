@@ -7,10 +7,13 @@ import java.util.List;
 enum Provider {
     /** The Rocks provider; a new store is a 64-bit one (IKE-Network/ike-issues#1258). */
     ROCKS("Open Rocks KB", true, null),
-    /** The Rocks provider creating its store with the legacy engine, in the 8-bit layout. */
+    /**
+     * The Rocks provider creating its store with the legacy engine, in the 8-bit layout. (The
+     * 6-bit layout is not a provider here: it holds at most 62 patterns, fewer than the starter
+     * set has, so every provider-parameterized test would fail on it; DexImportIT asks for it
+     * by itself.)
+     */
     ROCKS_LEGACY("Open Rocks KB", true, "8-bit"),
-    /** The legacy engine in the 6-bit layout, which holds more elements per pattern than 8-bit (DeX needs it). */
-    ROCKS_6BIT("Open Rocks KB", true, "6-bit"),
     SPINED_ARRAY("Open SpinedArrayStore", true, null),
     MV_STORE("Open MV Store", true, null),
     /** Held in memory only: a store lifetime ends with its JVM. */

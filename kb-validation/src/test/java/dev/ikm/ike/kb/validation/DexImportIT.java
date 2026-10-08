@@ -1,5 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
+import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.entity.export.ExportEntitiesToProtobufFile;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
@@ -88,7 +89,7 @@ class DexImportIT {
 
         Properties result = ForkedJvm.run(Load64.class, in, Duration.ofHours(8));
         result = ForkedJvm.run(Reopen64.class, result, Duration.ofHours(2));
-        result.setProperty(StoreStage.PROVIDER, Provider.ROCKS_6BIT.name());
+        result.setProperty(StoreStage.PROVIDER, Provider.ROCKS_LEGACY.name());
         result = ForkedJvm.run(LoadLegacy.class, result, Duration.ofHours(8));
 
         StoreDigest loaded = StoreDigest.load(result, LOADED_64);
@@ -183,6 +184,12 @@ class DexImportIT {
         @Override
         String storeProperty() {
             return LEGACY_STORE;
+        }
+
+        /** The 6-bit layout, which the 8-bit one cannot replace for DeX; set after the stage's own provider default. */
+        @Override
+        void configure(Properties in) {
+            System.setProperty(RocksProvider.Controller.NEW_STORE_LAYOUT_PROPERTY, "6-bit");
         }
 
         @Override
