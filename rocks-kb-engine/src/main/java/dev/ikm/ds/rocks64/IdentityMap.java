@@ -5,25 +5,37 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.EntityProxy;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.EnvOptions;
+import org.rocksdb.IngestExternalFileOptions;
+import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.SstFileWriter;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
+import java.util.stream.IntStream;
 
 /**
  * The UUID to nid map of a 64-bit store, and the allocation of nids: every UUID of a component
@@ -34,35 +46,68 @@ import java.util.function.LongSupplier;
  * pattern element {@value Counters#STAMP_PATTERN}, under the governed {@link EntityBinding}
  * UUIDs (settled 2026-10-07).
  *
- * <p>Entries live in memory until a flush writes them to the column, which happens at save, at
- * close, and whenever the memory holds more than {@value #FLUSH_THRESHOLD} entries, so that an
- * import of tens of millions of components does not hold them all in heap. A lookup reads memory
- * first and then the column. The flush writes through the write-ahead log: a record whose nid
- * has lost its UUIDs is the one loss a store cannot recover from, so identities are the durable
- * side of every crash.
+ * <p>New entries are held in memory, in a {@link UuidNidTable}, until a write puts them in the
+ * column, and a lookup reads memory before the column. During a load phase every entry of the
+ * import is held, and the column is written once at the phase's end (IKE-Network/ike-issues#1273:
+ * on DeX's 60 million identifiers, looking each one up in the column as it was registered, and
+ * flushing a million at a time, made the registration seventeen times slower than the spined
+ * array's); outside one, the memory is written whenever it holds more than
+ * {@value #FLUSH_THRESHOLD} entries. A save and a close write it too. A write of
+ * {@link SstIngest#threshold()} entries or more goes as sorted SST files, ingested, which
+ * bypasses the memtable, the write-ahead log and compaction; a smaller one goes as write
+ * batches through the log. A store created in this process skips the column while nothing
+ * beyond its fixed bindings has been written there.
  */
 final class IdentityMap {
 
     private static final Logger LOG = LoggerFactory.getLogger(IdentityMap.class);
 
-    /** Entries held in memory before they are written to the column: {@code rocks.identity.flushThreshold}. */
+    /** Entries held in memory before they are written to the column, outside a load phase: {@code rocks.identity.flushThreshold}. */
     static final int FLUSH_THRESHOLD = Integer.getInteger("rocks.identity.flushThreshold", 1_000_000);
+    /** Entries from which a write goes as ingested SST files rather than write batches: {@code rocks.identity.sstThreshold}. */
+    static final long SST_THRESHOLD = Long.getLong("rocks.identity.sstThreshold", 100_000);
+    /** Entries per SST file, so a large write is several files written at once. */
+    private static final long ENTRIES_PER_FILE = 4_000_000;
+    private static final int BATCH = 16_384;
 
     static final long PATTERN_OF_PATTERNS_NID = Nid.compose64(Counters.PATTERN_OF_PATTERNS, Counters.PATTERN_OF_PATTERNS);
     static final long CONCEPT_PATTERN_NID = Nid.compose64(Counters.PATTERN_OF_PATTERNS, Counters.CONCEPT_PATTERN);
     static final long STAMP_PATTERN_NID = Nid.compose64(Counters.PATTERN_OF_PATTERNS, Counters.STAMP_PATTERN);
 
+    /**
+     * How a large write is made: the options the SST files are written with, which must be the
+     * column's so the files match it, a directory on the database's file system to write them
+     * in, and the number of entries from which a write is made this way.
+     */
+    record SstIngest(Options options, File directory, long threshold) {
+    }
+
     private final RocksDB db;
     private final ColumnFamilyHandle handle;
     private final Counters counters;
-    private final ConcurrentHashMap<UUID, Long> unwritten = new ConcurrentHashMap<>();
+    private final SstIngest ingest;
+    /** The fixed bindings, always in memory: a lookup never goes to the column for them. */
+    private final Map<UUID, Long> fixed = new HashMap<>();
+    /** The entries not yet written. Replaced by an empty table when a write begins. */
+    private volatile UuidNidTable held = new UuidNidTable();
+    /** The entries a write is writing, readable until they are in the column; null between writes. */
+    private volatile UuidNidTable writing;
+    private volatile boolean loadPhase;
+    /** Whether the column holds nothing but the fixed bindings, which memory answers: true for a store created here until a write. */
+    private volatile boolean columnHoldsOnlyFixed;
     private final LockTable locks = new LockTable();
     private final ReentrantLock flushLock = new ReentrantLock();
 
-    IdentityMap(RocksDB db, ColumnFamilyHandle handle, Counters counters) {
+    IdentityMap(RocksDB db, ColumnFamilyHandle handle, Counters counters, SstIngest ingest) {
         this.db = db;
         this.handle = handle;
         this.counters = counters;
+        this.ingest = ingest;
+        for (FixedPattern pattern : fixedPatterns()) {
+            for (UUID uuid : pattern.uuids()) {
+                fixed.put(uuid, pattern.nid());
+            }
+        }
     }
 
     /** A fixed pattern: the UUIDs of its binding and the nid it has in every 64-bit store. */
@@ -82,7 +127,8 @@ final class IdentityMap {
 
     /**
      * Gives a new store its three fixed patterns: the pattern-of-patterns at element 1 of itself,
-     * the concept pattern at 2, the stamp pattern at 3, every UUID of each binding mapped.
+     * the concept pattern at 2, the stamp pattern at 3, every UUID of each binding mapped and
+     * written to the column through the log, so the store reopens with its bindings.
      */
     void bootstrap() {
         int patternOfPatterns = counters.nextPatternSequence();
@@ -93,21 +139,25 @@ final class IdentityMap {
             throw new IllegalStateException("A new store's first pattern sequences must be 1, 2 and 3; got "
                     + patternOfPatterns + ", " + concept + ", " + stamp);
         }
-        for (FixedPattern fixed : fixedPatterns()) {
-            for (UUID uuid : fixed.uuids()) {
-                unwritten.put(uuid, fixed.nid());
+        try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
+            for (Map.Entry<UUID, Long> binding : fixed.entrySet()) {
+                batch.put(handle, Keys.of(binding.getKey()), Keys.of(binding.getValue()));
             }
+            db.write(options, batch);
+        } catch (RocksDBException e) {
+            throw new RuntimeException("Could not write the fixed bindings", e);
         }
+        columnHoldsOnlyFixed = true;
     }
 
-    /** Checks that an existing store maps the three bindings to their fixed nids. */
+    /** Checks that an existing store's column maps the three bindings to their fixed nids. */
     void verifyBindings() {
         for (FixedPattern fixed : fixedPatterns()) {
             for (UUID uuid : fixed.uuids()) {
-                Optional<Long> nid = nid(uuid);
-                if (nid.isEmpty() || nid.get() != fixed.nid()) {
+                long nid = stored(uuid);
+                if (nid != fixed.nid()) {
                     throw new IllegalStateException("The store maps " + uuid + " of " + fixed.description() + " to "
-                            + nid.map(Object::toString).orElse("nothing") + ", not to its fixed nid " + fixed.nid());
+                            + (nid == 0 ? "nothing" : Long.toString(nid)) + ", not to its fixed nid " + fixed.nid());
                 }
             }
         }
@@ -115,20 +165,50 @@ final class IdentityMap {
 
     /** The nid of a UUID the store knows, from memory first and then the column. */
     Optional<Long> nid(UUID uuid) {
-        Long inMemory = unwritten.get(uuid);
-        if (inMemory != null) {
-            return Optional.of(inMemory);
-        }
-        try {
-            byte[] stored = db.get(handle, Keys.of(uuid));
-            return stored == null ? Optional.empty() : Optional.of(Keys.nid(stored));
-        } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
+        long nid = lookup(uuid);
+        return nid == 0 ? Optional.empty() : Optional.of(nid);
     }
 
     boolean knows(UUID uuid) {
-        return nid(uuid).isPresent();
+        return lookup(uuid) != 0;
+    }
+
+    /**
+     * The nid of a UUID, or zero: the entries held, the entries being written, the fixed
+     * bindings, then the column, unless it is known to hold only the bindings. A write moves the
+     * held table to the writing one before it starts and drops it only once the column has the
+     * entries, so a lookup finds an entry in one of the three throughout.
+     */
+    private long lookup(UUID uuid) {
+        long nid = held.get(uuid);
+        if (nid != 0) {
+            return nid;
+        }
+        UuidNidTable beingWritten = writing;
+        if (beingWritten != null) {
+            nid = beingWritten.get(uuid);
+            if (nid != 0) {
+                return nid;
+            }
+        }
+        Long binding = fixed.get(uuid);
+        if (binding != null) {
+            return binding;
+        }
+        if (columnHoldsOnlyFixed) {
+            return 0;
+        }
+        return stored(uuid);
+    }
+
+    /** The nid the column maps a UUID to, or zero. */
+    private long stored(UUID uuid) {
+        try {
+            byte[] value = db.get(handle, Keys.of(uuid));
+            return value == null ? 0 : Keys.nid(value);
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**
@@ -161,9 +241,9 @@ final class IdentityMap {
             adviseIfSeveralComponents(ordered);
         }
         for (UUID uuid : ordered) {
-            Optional<Long> known = nid(uuid);
-            if (known.isPresent()) {
-                return known.get();
+            long known = lookup(uuid);
+            if (known != 0) {
+                return known;
             }
         }
         if (PrimitiveData.SCOPED_PATTERN_PUBLICID_FOR_NID.isBound()) {
@@ -192,9 +272,16 @@ final class IdentityMap {
      */
     private long keyFor(PublicId id, LongSupplier allocator) {
         UUID[] uuids = id.asUuidArray();
-        Long existing = existing(uuids);
-        if (existing != null && allMapped(uuids)) {
-            return existing;
+        if (uuids.length == 1) {
+            long known = lookup(uuids[0]);
+            if (known != 0) {
+                return known;
+            }
+        } else {
+            Long existing = existing(uuids);
+            if (existing != null && allMapped(uuids)) {
+                return existing;
+            }
         }
         boolean allocated = false;
         long nid;
@@ -209,8 +296,8 @@ final class IdentityMap {
                 nid = known;
             }
             for (UUID uuid : uuids) {
-                if (!knows(uuid)) {
-                    unwritten.put(uuid, nid);
+                if (lookup(uuid) == 0) {
+                    held.putIfAbsent(uuid, nid);
                 }
             }
         } finally {
@@ -224,9 +311,9 @@ final class IdentityMap {
 
     private Long existing(UUID[] uuids) {
         for (UUID uuid : uuids) {
-            Optional<Long> nid = nid(uuid);
-            if (nid.isPresent()) {
-                return nid.get();
+            long nid = lookup(uuid);
+            if (nid != 0) {
+                return nid;
             }
         }
         return null;
@@ -234,7 +321,7 @@ final class IdentityMap {
 
     private boolean allMapped(UUID[] uuids) {
         for (UUID uuid : uuids) {
-            if (!knows(uuid)) {
+            if (lookup(uuid) == 0) {
                 return false;
             }
         }
@@ -247,16 +334,30 @@ final class IdentityMap {
         }
         TreeSet<Long> nids = new TreeSet<>();
         for (UUID uuid : uuids) {
-            nid(uuid).ifPresent(nids::add);
+            long nid = lookup(uuid);
+            if (nid != 0) {
+                nids.add(nid);
+            }
         }
         if (nids.size() > 1) {
             IdentityAdvisories.componentsShareUuids(List.of(uuids), nids);
         }
     }
 
-    /** Writes the entries held in memory to the column, if there are more than the threshold. */
+    /**
+     * Enters or leaves a load phase. While one is on, the entries are held whatever their
+     * number; leaving it writes them all, once.
+     */
+    void setLoadPhase(boolean loadPhase) {
+        this.loadPhase = loadPhase;
+        if (!loadPhase) {
+            flush();
+        }
+    }
+
+    /** Writes the entries held in memory to the column, if there are more than the threshold and no load phase is on. */
     void flushIfLarge() {
-        if (unwritten.size() > FLUSH_THRESHOLD && flushLock.tryLock()) {
+        if (!loadPhase && held.size() > FLUSH_THRESHOLD && flushLock.tryLock()) {
             try {
                 flush();
             } finally {
@@ -265,42 +366,150 @@ final class IdentityMap {
         }
     }
 
-    /** Writes every entry held in memory to the column, and drops it from memory once written. */
+    /**
+     * Writes every entry held in memory to the column. The held table becomes the one being
+     * written and a new, empty table takes new entries meanwhile; the written table is dropped
+     * once the column has its entries. A write that fails leaves its table readable, and is
+     * retried by the next write.
+     */
     void flush() {
         flushLock.lock();
         try {
-            List<UUID> uuids = new ArrayList<>(unwritten.keySet());
-            if (uuids.isEmpty()) {
+            UuidNidTable retry = writing;
+            if (retry != null) {
+                write(retry);
+                columnHoldsOnlyFixed = false;
+                writing = null;
+            }
+            UuidNidTable table = held;
+            if (table.isEmpty()) {
                 return;
             }
-            try (WriteOptions options = new WriteOptions()) {
-                for (int from = 0; from < uuids.size(); from += 16_384) {
-                    int to = Math.min(uuids.size(), from + 16_384);
-                    List<UUID> written = new ArrayList<>(to - from);
-                    try (WriteBatch batch = new WriteBatch()) {
-                        for (int i = from; i < to; i++) {
-                            UUID uuid = uuids.get(i);
-                            Long nid = unwritten.get(uuid);
-                            if (nid != null) {
-                                batch.put(handle, Keys.of(uuid), Keys.of(nid));
-                                written.add(uuid);
-                            }
-                        }
-                        db.write(options, batch);
-                    }
-                    // Removed only after the write landed, so a lookup finds the entry in memory or in the column.
-                    written.forEach(unwritten::remove);
-                }
-            } catch (RocksDBException e) {
-                throw new RuntimeException("Could not write the identity map", e);
-            }
-            LOG.debug("Flushed {} identities", uuids.size());
+            writing = table;
+            held = new UuidNidTable();
+            write(table);
+            columnHoldsOnlyFixed = false;
+            writing = null;
         } finally {
             flushLock.unlock();
         }
     }
 
-    int unwrittenCount() {
-        return unwritten.size();
+    private void write(UuidNidTable table) {
+        Stopwatch stopwatch = new Stopwatch();
+        long count = table.size();
+        table.sort();
+        int files = count >= ingest.threshold() ? writeAsSstFiles(table, count) : writeAsBatches(table);
+        stopwatch.stop();
+        if (count >= ingest.threshold()) {
+            LOG.info("Wrote {} identities as {} ingested SST file(s) in {}", String.format("%,d", count), files,
+                    stopwatch.durationString());
+        } else {
+            LOG.debug("Wrote {} identities in {} batch(es) in {}", count, files, stopwatch.durationString());
+        }
+    }
+
+    /** Writes the table in key order as write batches through the log; the number of batches. */
+    private int writeAsBatches(UuidNidTable table) {
+        int[] batches = {0};
+        try (WriteOptions options = new WriteOptions()) {
+            WriteBatch[] batch = {new WriteBatch()};
+            int[] inBatch = {0};
+            try {
+                table.forEachSorted(0, UuidNidTable.STRIPES, (msb, lsb, nid) -> {
+                    try {
+                        batch[0].put(handle, Keys.of(new UUID(msb, lsb)), Keys.of(nid));
+                        if (++inBatch[0] == BATCH) {
+                            db.write(options, batch[0]);
+                            batch[0].close();
+                            batch[0] = new WriteBatch();
+                            inBatch[0] = 0;
+                            batches[0]++;
+                        }
+                    } catch (RocksDBException e) {
+                        throw new RuntimeException("Could not write the identity map", e);
+                    }
+                });
+                if (inBatch[0] > 0) {
+                    db.write(options, batch[0]);
+                    batches[0]++;
+                }
+            } catch (RocksDBException e) {
+                throw new RuntimeException("Could not write the identity map", e);
+            } finally {
+                batch[0].close();
+            }
+        }
+        return batches[0];
+    }
+
+    /**
+     * Writes the table as SST files, each a range of stripes and so a range of the key space,
+     * several at once, and ingests them in one call; the number of files. The files are moved
+     * into the database, so the directory is on its file system.
+     */
+    private int writeAsSstFiles(UuidNidTable table, long count) {
+        int files = (int) Math.min(UuidNidTable.STRIPES, Math.max(1, count / ENTRIES_PER_FILE));
+        int stripesPerFile = (UuidNidTable.STRIPES + files - 1) / files;
+        File directory = ingest.directory();
+        try {
+            Files.createDirectories(directory.toPath());
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not create " + directory, e);
+        }
+        String[] paths = new String[files];
+        IntStream.range(0, files).parallel().forEach(file -> {
+            int from = file * stripesPerFile;
+            int to = Math.min(UuidNidTable.STRIPES, from + stripesPerFile);
+            if (from < to && table.sizeOf(from, to) > 0) {
+                paths[file] = writeSstFile(table, from, to, new File(directory, "identities-" + file + ".sst"));
+            }
+        });
+        List<String> written = new ArrayList<>();
+        for (String path : paths) {
+            if (path != null) {
+                written.add(path);
+            }
+        }
+        try (IngestExternalFileOptions options = new IngestExternalFileOptions().setMoveFiles(true)) {
+            db.ingestExternalFile(handle, written, options);
+        } catch (RocksDBException e) {
+            throw new RuntimeException("Could not ingest the identity map's SST files", e);
+        } finally {
+            for (String path : written) {
+                new File(path).delete();
+            }
+            directory.delete();
+        }
+        return written.size();
+    }
+
+    private String writeSstFile(UuidNidTable table, int fromStripe, int toStripe, File file) {
+        ByteBuffer key = ByteBuffer.allocateDirect(16);
+        ByteBuffer value = ByteBuffer.allocateDirect(8);
+        try (EnvOptions env = new EnvOptions(); SstFileWriter writer = new SstFileWriter(env, ingest.options())) {
+            writer.open(file.getAbsolutePath());
+            table.forEachSorted(fromStripe, toStripe, (msb, lsb, nid) -> {
+                key.clear();
+                key.putLong(msb).putLong(lsb).flip();
+                value.clear();
+                value.putLong(nid).flip();
+                try {
+                    writer.put(key, value);
+                } catch (RocksDBException e) {
+                    throw new RuntimeException("Could not write " + file, e);
+                }
+            });
+            writer.finish();
+            return file.getAbsolutePath();
+        } catch (RocksDBException e) {
+            throw new RuntimeException("Could not write " + file, e);
+        }
+    }
+
+    /** The entries held in memory and not yet written. */
+    long heldCount() {
+        UuidNidTable beingWritten = writing;
+        return held.size() + (beingWritten == null ? 0 : beingWritten.size());
     }
 }

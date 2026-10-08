@@ -4,6 +4,7 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 
@@ -19,8 +20,11 @@ final class TestDb implements AutoCloseable {
     private final DBOptions options = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
     private final List<ColumnFamilyOptions> familyOptions = new ArrayList<>();
     private final List<ColumnFamilyHandle> handles = new ArrayList<>();
+    private final List<Options> ingestOptions = new ArrayList<>();
+    private final File directory;
 
     TestDb(File directory) {
+        this.directory = directory;
         RocksDB.loadLibrary();
         List<ColumnFamilyDescriptor> descriptors = new ArrayList<>();
         for (Rocks64Store.Family family : Rocks64Store.Family.values()) {
@@ -40,6 +44,13 @@ final class TestDb implements AutoCloseable {
 
     ColumnFamilyHandle handle(Rocks64Store.Family family) {
         return handles.get(family.ordinal());
+    }
+
+    /** How the identity map writes SST files into this database, from the given number of entries. */
+    IdentityMap.SstIngest identityIngest(long threshold) {
+        Options options = new Options(this.options, familyOptions.get(Rocks64Store.Family.IDENTITIES.ordinal()));
+        ingestOptions.add(options);
+        return new IdentityMap.SstIngest(options, new File(directory, "ingest"), threshold);
     }
 
     void putRecord(long nid, byte[] record) {
@@ -63,6 +74,7 @@ final class TestDb implements AutoCloseable {
     public void close() {
         handles.forEach(ColumnFamilyHandle::close);
         db.close();
+        ingestOptions.forEach(Options::close);
         familyOptions.forEach(ColumnFamilyOptions::close);
         options.close();
     }

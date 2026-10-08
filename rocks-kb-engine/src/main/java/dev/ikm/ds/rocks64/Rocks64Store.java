@@ -39,6 +39,7 @@ import org.rocksdb.FlushOptions;
 import org.rocksdb.IndexType;
 import org.rocksdb.InfoLogLevel;
 import org.rocksdb.LRUCache;
+import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -124,6 +125,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
     private final List<BloomFilter> filters = new ArrayList<>();
     private final Counters counters;
     private final IdentityMap identityMap;
+    /** The identity column's options as a whole, for the SST files the identity map writes. */
+    private final Options identityFileOptions;
     private final RecordMap recordMap;
     private final Scanner scanner;
 
@@ -228,7 +231,9 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
             try {
                 NidLayout.activate(NidLayout.SIXTY_FOUR_BIT);
                 this.counters = Counters.load(db, handle(Family.DEFAULT), handle(Family.ENTITIES));
-                this.identityMap = new IdentityMap(db, handle(Family.IDENTITIES), counters);
+                this.identityFileOptions = new Options(dbOptions, descriptors.get(Family.IDENTITIES.ordinal()).getOptions());
+                this.identityMap = new IdentityMap(db, handle(Family.IDENTITIES), counters,
+                        new IdentityMap.SstIngest(identityFileOptions, new File(root, "rocks-ingest"), IdentityMap.SST_THRESHOLD));
                 if (creating) {
                     identityMap.bootstrap();
                     try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
@@ -236,7 +241,6 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
                         counters.save(batch, handle(Family.DEFAULT));
                         db.write(options, batch);
                     }
-                    identityMap.flush();
                 } else {
                     StoreFormat.verify(StoreFormat.read(db, handle(Family.FORMAT)), rocks);
                     identityMap.verifyBindings();
@@ -411,6 +415,13 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
         // The bloom filters belong to the options and are freed with them; closing them here
         // too crashed the native layer at shutdown in the legacy engine.
         filters.clear();
+        if (identityFileOptions != null) {
+            try {
+                identityFileOptions.close();
+            } catch (RuntimeException e) {
+                LOG.debug("Error closing the identity file options", e);
+            }
+        }
         try {
             referenceReadOptions.close();
         } catch (RuntimeException e) {
@@ -823,9 +834,11 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
         return getSearchService().highlight(query, text);
     }
 
+    /** A load phase holds every identity in memory; leaving it writes them to the column once ({@link IdentityMap}). */
     @Override
     public void setLoadPhase(boolean loadPhase) {
         this.loadPhase = loadPhase;
+        identityMap.setLoadPhase(loadPhase);
     }
 
     @Override

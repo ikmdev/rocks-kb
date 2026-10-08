@@ -21,9 +21,13 @@ class IdentityMapTest {
     private record Maps(Counters counters, IdentityMap identities) {
     }
 
+    /** Entries from which a test map writes SST files: small, so the tests exercise that path. */
+    private static final long SST_THRESHOLD = 1_000;
+
     private static Maps open(TestDb db) {
         Counters counters = Counters.load(db.db, db.handle(Rocks64Store.Family.DEFAULT), db.handle(Rocks64Store.Family.ENTITIES));
-        return new Maps(counters, new IdentityMap(db.db, db.handle(Rocks64Store.Family.IDENTITIES), counters));
+        return new Maps(counters, new IdentityMap(db.db, db.handle(Rocks64Store.Family.IDENTITIES), counters,
+                db.identityIngest(SST_THRESHOLD)));
     }
 
     private static PublicId id(UUID... uuids) {
@@ -46,10 +50,18 @@ class IdentityMapTest {
             assertEquals(4, maps.counters().next(Counters.PATTERN_OF_PATTERNS));
 
             maps.identities().flush();
-            assertEquals(0, maps.identities().unwrittenCount());
+            assertEquals(0, maps.identities().heldCount());
             maps.identities().verifyBindings();
             Maps reopened = open(db);
             reopened.identities().verifyBindings();
+        }
+    }
+
+    @Test
+    void aColumnWithoutTheBindingsIsRefused(@TempDir File dir) {
+        try (TestDb db = new TestDb(dir)) {
+            IllegalStateException failure = assertThrows(IllegalStateException.class, () -> open(db).identities().verifyBindings());
+            assertTrue(failure.getMessage().contains("to nothing, not to its fixed nid"), failure.getMessage());
         }
     }
 
@@ -89,7 +101,57 @@ class IdentityMapTest {
             assertTrue(identities.knows(first));
             assertFalse(identities.knows(UUID.randomUUID()));
             identities.flush();
+            assertEquals(0, identities.heldCount());
             assertEquals(nid, identities.nidForUuids(second), "from the column after a flush");
+            assertEquals(nid, open(db).identities().nidForUuids(first), "from the column, through a fresh map");
+        }
+    }
+
+    @Test
+    void aLoadPhaseHoldsEveryEntryAndWritesThemOnceAtItsEnd(@TempDir File dir) {
+        try (TestDb db = new TestDb(dir)) {
+            IdentityMap identities = open(db).identities();
+            identities.bootstrap();
+            identities.setLoadPhase(true);
+            int count = (int) (SST_THRESHOLD * 3);
+            UUID[] uuids = new UUID[count];
+            long[] nids = new long[count];
+            for (int i = 0; i < count; i++) {
+                uuids[i] = UUID.randomUUID();
+                nids[i] = identities.nidFor(EntityBinding.Concept.pattern(), id(uuids[i]));
+            }
+            assertEquals(count, identities.heldCount(), "held through the load phase, whatever their number");
+            identities.flushIfLarge();
+            assertEquals(count, identities.heldCount(), "the threshold does not apply during a load phase");
+
+            identities.setLoadPhase(false);
+            assertEquals(0, identities.heldCount(), "written at the end of the load phase");
+            for (int i = 0; i < count; i++) {
+                assertEquals(nids[i], identities.nidForUuids(uuids[i]));
+            }
+            IdentityMap reopened = open(db).identities();
+            for (int i = 0; i < count; i += 97) {
+                assertEquals(nids[i], reopened.nidForUuids(uuids[i]), "in the column, from the ingested files");
+            }
+            assertFalse(new File(dir, "ingest").exists(), "the files were moved into the database");
+        }
+    }
+
+    @Test
+    void entriesRegisteredDuringAWriteAreKept(@TempDir File dir) {
+        try (TestDb db = new TestDb(dir)) {
+            IdentityMap identities = open(db).identities();
+            identities.bootstrap();
+            UUID before = UUID.randomUUID();
+            long beforeNid = identities.nidFor(EntityBinding.Concept.pattern(), id(before));
+            identities.flush();
+            UUID after = UUID.randomUUID();
+            long afterNid = identities.nidFor(EntityBinding.Concept.pattern(), id(after));
+            assertEquals(beforeNid, identities.nidForUuids(before));
+            assertEquals(afterNid, identities.nidForUuids(after));
+            assertEquals(1, identities.heldCount());
+            identities.flush();
+            assertEquals(afterNid, open(db).identities().nidForUuids(after));
         }
     }
 

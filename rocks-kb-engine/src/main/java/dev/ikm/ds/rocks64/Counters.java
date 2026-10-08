@@ -129,9 +129,13 @@ final class Counters {
             throw new IllegalArgumentException("pattern sequence " + patternSequence + " is out of range");
         }
         AtomicInteger counter = ensureCounter(patternSequence);
-        // The counter stops at the ceiling; it never hands out MAX_SEQUENCE_64 + 1 and never wraps.
-        int issued = counter.getAndUpdate(n -> n > Nid.MAX_SEQUENCE_64 ? n : n + 1);
-        if (issued > Nid.MAX_SEQUENCE_64) {
+        // One fetch-and-add: a compare-and-set loop here contended across every thread of an
+        // import registering one pattern's members (IKE-Network/ike-issues#1273). The counter
+        // stops at the ceiling: a call past it puts the counter back there, so it never wraps
+        // into a sequence, and a value below the first element can only be a wrap caught here.
+        int issued = counter.getAndIncrement();
+        if (issued > Nid.MAX_SEQUENCE_64 || issued < FIRST_ELEMENT) {
+            counter.set(Nid.MAX_SEQUENCE_64 + 1);
             throw new IllegalStateException("Pattern " + patternSequence + " has issued every element sequence it may, "
                     + Nid.MAX_SEQUENCE_64 + "; no new element can be created in it");
         }

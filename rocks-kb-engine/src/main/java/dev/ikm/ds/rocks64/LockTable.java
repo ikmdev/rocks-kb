@@ -25,20 +25,42 @@ final class LockTable {
     }
 
     void lock(PublicId publicId) {
-        for (int stripe : stripesFor(publicId.asUuidArray())) {
+        UUID[] uuids = publicId.asUuidArray();
+        if (uuids.length == 1) {
+            stripes[stripeOf(uuids[0])].lock();
+            return;
+        }
+        for (int stripe : stripesFor(uuids)) {
             stripes[stripe].lock();
         }
     }
 
     void unlock(PublicId publicId) {
-        int[] held = stripesFor(publicId.asUuidArray());
+        UUID[] uuids = publicId.asUuidArray();
+        if (uuids.length == 1) {
+            stripes[stripeOf(uuids[0])].unlock();
+            return;
+        }
+        int[] held = stripesFor(uuids);
         for (int i = held.length - 1; i >= 0; i--) {
             stripes[held[i]].unlock();
         }
     }
 
+    /** The distinct stripes of the UUIDs, ascending. A plain sort and squeeze: a stream pipeline here was a fifth of a registration (IKE-Network/ike-issues#1273). */
     static int[] stripesFor(UUID[] uuids) {
-        return Arrays.stream(uuids).mapToInt(LockTable::stripeOf).distinct().sorted().toArray();
+        int[] stripes = new int[uuids.length];
+        for (int i = 0; i < uuids.length; i++) {
+            stripes[i] = stripeOf(uuids[i]);
+        }
+        Arrays.sort(stripes);
+        int distinct = 0;
+        for (int i = 0; i < stripes.length; i++) {
+            if (i == 0 || stripes[i] != stripes[i - 1]) {
+                stripes[distinct++] = stripes[i];
+            }
+        }
+        return distinct == stripes.length ? stripes : Arrays.copyOf(stripes, distinct);
     }
 
     private static int stripeOf(UUID uuid) {

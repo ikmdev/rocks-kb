@@ -187,7 +187,7 @@ class SnomedBaselineIT {
     }
 
     /** The bytes of the closed store, in all and by each entry at its top level. */
-    private static void sizes(Path store, Properties out) throws IOException {
+    static void sizes(Path store, Properties out) throws IOException {
         long total = 0;
         try (Stream<Path> entries = Files.list(store)) {
             for (Path entry : entries.sorted().toList()) {
