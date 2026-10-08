@@ -34,7 +34,7 @@ import org.eclipse.collections.api.list.primitive.MutableLongList;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -84,6 +84,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class StoreBenchmarkIT {
     private static final Logger LOG = LoggerFactory.getLogger(StoreBenchmarkIT.class);
 
+    /** The stores to run on: every one, or those {@code -Dstore.providers} names. */
+    static List<Provider> providers() {
+        return Provider.selected();
+    }
+
     private static final int DEFAULT_ROUNDS = 7;
     private static final long SEED = 20261004L;
     private static final double BOUND = 2.0;
@@ -94,10 +99,10 @@ class StoreBenchmarkIT {
     private static final String MEDIAN = ".median.micros";
     private static final String MIN = ".min.micros";
     private static final String COUNT = ".count";
-    private static final String ROUNDS = "benchmark.rounds";
+    static final String ROUNDS = "benchmark.rounds";
 
     @ParameterizedTest
-    @EnumSource(Provider.class)
+    @MethodSource("providers")
     void retrievalStaysWithinTwiceItsReference(Provider provider) throws IOException {
         Path work = Path.of("target", "store-benchmarks", "stores", provider.name().toLowerCase()).toAbsolutePath();
         SnomedRoundTripIT.deleteTree(work);
