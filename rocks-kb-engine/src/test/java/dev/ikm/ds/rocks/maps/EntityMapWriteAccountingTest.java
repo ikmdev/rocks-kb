@@ -280,6 +280,31 @@ class EntityMapWriteAccountingTest {
         assertArrayEquals(entity, visited.getFirst());
     }
 
+    /**
+     * A scan releases its snapshot when it ends. Closing a RocksJava {@code Snapshot} releases
+     * nothing, so before IKE-Network/ike-issues#1257 every scan left one behind, pinning every
+     * key version written after it for the life of the process.
+     */
+    @Test
+    void forEachReleasesItsSnapshot() throws RocksDBException {
+        long key = (3L << 48) | 5;
+        entityMap.put(key, chronicleOnlyEntity(chronicleFor(key, (byte) 0)));
+        entityMap.forEach((bytes, nid) -> { });
+        entityMap.forEach((bytes, nid) -> { });
+        assertEquals("0", db.getProperty("rocksdb.num-snapshots"), "snapshots outstanding after forEach");
+    }
+
+    @Test
+    void scanEntitiesInRangeReleasesItsSnapshot() throws RocksDBException {
+        long key = (3L << 48) | 5;
+        entityMap.put(key, chronicleOnlyEntity(chronicleFor(key, (byte) 0)));
+        for (int i = 0; i < 3; i++) {
+            entityMap.scanEntitiesInRange(new dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern(3, 1, 10),
+                    (bytes, nid) -> { });
+        }
+        assertEquals("0", db.getProperty("rocksdb.num-snapshots"), "snapshots outstanding after scanEntitiesInRange");
+    }
+
     /** Puts a 32 MB entity, which keeps the writer busy for milliseconds. */
     private void occupyTheWriter() {
         byte[] giantChronicle = new byte[32 * 1024 * 1024];

@@ -21,7 +21,8 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
         List<SpliteratorForRocksKeyOfPattern> list = new ArrayList<>();
         if (perPatternSpliterators != null) {
             for (SpliteratorForRocksKeyOfPattern s : perPatternSpliterators) {
-                if (s != null) list.add(s);
+                // A pattern with a counter but no element yet is no range to scan.
+                if (s != null && s.estimateSize() > 0) list.add(s);
             }
         }
         // Sort by pattern sequence to achieve global natural key order:
@@ -51,6 +52,31 @@ public class SpliteratorForEntityKeys implements Spliterator.OfLong {
             }
         }
         return null;
+    }
+
+    /**
+     * Hands out what this spliterator still covers as whole per-pattern ranges, and leaves it
+     * empty: the current range, then the remaining ones in pattern order. For a caller that
+     * splits to exhaustion and runs the pieces apart, so that the last range is scanned as one
+     * range and not one element at a time (IKE-Network/ike-issues#1257; G5 of the
+     * parallel-iteration review).
+     *
+     * @return the per-pattern ranges not yet handed out or traversed, each with elements left;
+     *         possibly empty
+     */
+    public List<SpliteratorForRocksKeyOfPattern> drainToRanges() {
+        List<SpliteratorForRocksKeyOfPattern> ranges = new ArrayList<>();
+        if (current != null && current.estimateSize() > 0) {
+            ranges.add(current);
+        }
+        current = null;
+        for (SpliteratorForRocksKeyOfPattern s : remaining) {
+            if (s.estimateSize() > 0) {
+                ranges.add(s);
+            }
+        }
+        remaining.clear();
+        return ranges;
     }
 
     @Override

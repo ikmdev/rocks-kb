@@ -79,6 +79,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@value #NOISE_FLOOR_MICROS} microseconds is reported but not bounded, being noise at this
  * size. With no reference for the machine, the timings are written to
  * {@code target/store-benchmarks/<machine>/<store>.properties}, to be copied into place.
+ * <p>The stages run without the agents of the test JVM ({@link ForkedJvm#runWithoutAgents}):
+ * the JaCoCo agent failsafe attaches made the parallel operations slower than the sequential
+ * ones (IKE-Network/ike-issues#1246, #1257). A reference records what its stages ran with,
+ * under {@value ForkedJvm#AGENTS_PROPERTY}, and a run with other agents fails against it.
  */
 @Tag("starter-set")
 class StoreBenchmarkIT {
@@ -116,15 +120,16 @@ class StoreBenchmarkIT {
 
         Properties result;
         if (provider.persistent) {
-            Properties loaded = ForkedJvm.run(StarterSetProbeIT.Load.class, in, Duration.ofMinutes(10));
-            result = ForkedJvm.run(Measure.class, loaded, Duration.ofMinutes(20));
+            Properties loaded = ForkedJvm.runWithoutAgents(StarterSetProbeIT.Load.class, in, Duration.ofMinutes(10));
+            result = ForkedJvm.runWithoutAgents(Measure.class, loaded, Duration.ofMinutes(20));
         } else {
-            result = ForkedJvm.run(LoadAndMeasure.class, in, Duration.ofMinutes(20));
+            result = ForkedJvm.runWithoutAgents(LoadAndMeasure.class, in, Duration.ofMinutes(20));
         }
+        String agents = result.getProperty(ForkedJvm.AGENTS_PROPERTY);
 
         Map<String, long[]> timings = timings(result);
         String machine = machine();
-        LOG.info("{} on {}:\n{}", provider, machine, table(timings));
+        LOG.info("{} on {} (agents: {}):\n{}", provider, machine, agents, table(timings));
 
         List<Executable> checks = new ArrayList<>();
         // The same question asked in order and shuffled visits the same things.
@@ -140,10 +145,15 @@ class StoreBenchmarkIT {
 
         Properties reference = reference(machine, provider);
         if (reference == null) {
-            Path written = write(machine, provider, timings);
+            Path written = write(machine, provider, timings, agents);
             LOG.warn("No benchmark reference for {} on {}; this run's timings are in {}. "
                     + "Copy it to src/test/resources/benchmarks/{}/ to adopt it.", provider, machine, written, machine);
         } else {
+            String referenceAgents = reference.getProperty(ForkedJvm.AGENTS_PROPERTY);
+            if (referenceAgents != null) {
+                checks.add(() -> assertEquals(referenceAgents, agents,
+                        "the stages ran with other agents than the reference was measured with"));
+            }
             for (Map.Entry<String, long[]> timing : timings.entrySet()) {
                 String op = timing.getKey();
                 String referenceMedian = reference.getProperty(op + MEDIAN);
@@ -485,7 +495,8 @@ class StoreBenchmarkIT {
         }
     }
 
-    private static Path write(String machine, Provider provider, Map<String, long[]> timings) throws IOException {
+    private static Path write(String machine, Provider provider, Map<String, long[]> timings, String agents)
+            throws IOException {
         Path file = Path.of("target", "store-benchmarks", machine, provider.name().toLowerCase() + ".properties").toAbsolutePath();
         Files.createDirectories(file.getParent());
         Properties written = new Properties();
@@ -493,6 +504,7 @@ class StoreBenchmarkIT {
             written.setProperty(op + MEDIAN, Long.toString(t[1]));
             written.setProperty(op + COUNT, Long.toString(t[3]));
         });
+        written.setProperty(ForkedJvm.AGENTS_PROPERTY, agents);
         try (OutputStream stream = Files.newOutputStream(file)) {
             written.store(stream, "Store benchmark reference: " + provider + " on " + machine);
         }

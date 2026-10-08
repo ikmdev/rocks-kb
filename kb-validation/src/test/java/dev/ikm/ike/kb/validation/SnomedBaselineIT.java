@@ -83,6 +83,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code target/store-benchmarks/<machine>/snomed-<store>.properties}, to be copied into place
  * as the reference or compared with it. Runs with {@code -Psnomed}. A subset of the stores runs with
  * {@code -Dstore.providers=<name>,...}.
+ * <p>The stages run without the agents of the test JVM ({@link ForkedJvm#runWithoutAgents}):
+ * the JaCoCo agent failsafe attaches made the parallel scan fifteen times slower, and was what
+ * IKE-Network/ike-issues#1246 measured. A reference records what its stages ran with, under
+ * {@value ForkedJvm#AGENTS_PROPERTY}, and a run with other agents fails against it.
  */
 @Tag("snomed")
 class SnomedBaselineIT {
@@ -122,13 +126,14 @@ class SnomedBaselineIT {
 
         Properties result;
         if (provider.persistent) {
-            result = ForkedJvm.run(Import.class, in, Duration.ofHours(2));
+            result = ForkedJvm.runWithoutAgents(Import.class, in, Duration.ofHours(2));
             sizes(store, result);
-            result = ForkedJvm.run(Iterate.class, result, Duration.ofHours(1));
-            result = ForkedJvm.run(StoreBenchmarkIT.Measure.class, result, Duration.ofHours(2));
+            result = ForkedJvm.runWithoutAgents(Iterate.class, result, Duration.ofHours(1));
+            result = ForkedJvm.runWithoutAgents(StoreBenchmarkIT.Measure.class, result, Duration.ofHours(2));
         } else {
-            result = ForkedJvm.run(LoadIterateAndRetrieve.class, in, Duration.ofHours(3));
+            result = ForkedJvm.runWithoutAgents(LoadIterateAndRetrieve.class, in, Duration.ofHours(3));
         }
+        String agents = result.getProperty(ForkedJvm.AGENTS_PROPERTY);
 
         long manifestEntities = manifestEntities(kb);
         assertEquals(manifestEntities, Long.parseLong(result.getProperty("iterate.bytes.count")),
@@ -141,9 +146,9 @@ class SnomedBaselineIT {
             }
         }
         String machine = StoreBenchmarkIT.machine();
-        LOG.info("SNOMED CT baselines, {} on {}:\n{}", provider, machine, table(measures));
+        LOG.info("SNOMED CT baselines, {} on {} (agents: {}):\n{}", provider, machine, agents, table(measures));
 
-        Path written = write(machine, provider, measures);
+        Path written = write(machine, provider, measures, agents);
         Properties reference = reference(machine, provider);
         if (reference == null) {
             LOG.warn("No SNOMED CT baseline for {} on {}; this run's measures are in {}. "
@@ -152,6 +157,11 @@ class SnomedBaselineIT {
         }
         LOG.info("This run's measures are in {}", written);
         List<org.junit.jupiter.api.function.Executable> checks = new ArrayList<>();
+        String referenceAgents = reference.getProperty(ForkedJvm.AGENTS_PROPERTY);
+        if (referenceAgents != null) {
+            checks.add(() -> assertEquals(referenceAgents, agents,
+                    "the stages ran with other agents than the reference was measured with"));
+        }
         for (Map.Entry<String, String> measure : measures.entrySet()) {
             String key = measure.getKey();
             String referenceValue = reference.getProperty(key);
@@ -233,11 +243,13 @@ class SnomedBaselineIT {
         }
     }
 
-    private static Path write(String machine, Provider provider, Map<String, String> measures) throws IOException {
+    private static Path write(String machine, Provider provider, Map<String, String> measures, String agents)
+            throws IOException {
         Path file = Path.of("target", "store-benchmarks", machine, referenceName(provider)).toAbsolutePath();
         Files.createDirectories(file.getParent());
         Properties written = new Properties();
         measures.forEach(written::setProperty);
+        written.setProperty(ForkedJvm.AGENTS_PROPERTY, agents);
         try (OutputStream stream = Files.newOutputStream(file)) {
             written.store(stream, "SNOMED CT baselines: " + provider + " on " + machine);
         }

@@ -468,11 +468,11 @@ public class EntityMap
 
     public void forEach(ObjIntConsumer<byte[]> entityHandler) {
         awaitPendingWrites();
-        final int allowedErrors = 5;
-        int errors = 0;
-        int count = 0;
-        try (final Snapshot s = db.getSnapshot();
-             final ReadOptions ro =
+        // Closing a RocksJava Snapshot releases nothing: the database owns it, and only
+        // releaseSnapshot gives it back. A snapshot never released pins every key version
+        // written after it, for the life of the process (IKE-Network/ike-issues#1257).
+        final Snapshot s = db.getSnapshot();
+        try (final ReadOptions ro =
                      new ReadOptions().setPrefixSameAsStart(false) // 2 byte Column Family prefix, and 8 byte key prefix
                              .setTotalOrderSeek(false)
                              .setSnapshot(s);
@@ -482,6 +482,8 @@ public class EntityMap
                 MutableList<byte[]> parts = readParts(it, it.key());
                 entityHandler.accept(assemble(parts), nidOf(parts.get(0)));
             }
+        } finally {
+            db.releaseSnapshot(s);
         }
     }
 
@@ -501,8 +503,9 @@ public class EntityMap
         Objects.requireNonNull(entityHandler, "entityHandler");
         awaitPendingWrites();
 
-        try (final Snapshot s = db.getSnapshot();
-             final ReadOptions ro =
+        // Released when the scan ends; see forEach.
+        final Snapshot s = db.getSnapshot();
+        try (final ReadOptions ro =
                      new ReadOptions().setPrefixSameAsStart(false) // 2 byte Column Family prefix, and 8 byte key prefix
                                       .setTotalOrderSeek(false)
                                       .setSnapshot(s);
@@ -525,6 +528,8 @@ public class EntityMap
                     }
                 }));
             }
+        } finally {
+            db.releaseSnapshot(s);
         }
     }
 

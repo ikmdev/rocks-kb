@@ -6,12 +6,11 @@ import java.util.function.ObjLongConsumer;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 
 import dev.ikm.tinkar.common.service.internal.EntityStore;
-import dev.ikm.tinkar.common.util.thread.StructuredScopes;
-import dev.ikm.tinkar.common.util.thread.SubtaskFailedException;
 import dev.ikm.tinkar.common.util.SetOnce;
 import dev.ikm.ds.rocks.maps.*;
 import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
+import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForRocksKeyOfPattern;
 import dev.ikm.tinkar.common.id.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -630,7 +629,10 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     private void forEachParallel(ObjIntConsumer<byte[]> action, Spliterator.OfLong entityKeys) {
         MutableList<SpliteratorForRocksKeyOfPattern> ranges = Lists.mutable.empty();
 
-        // Keep splitting until we can’t split anymore; collect per-pattern ranges
+        // Split until nothing splits further, and collect the per-pattern ranges. What the
+        // composite still holds when it can no longer split, the tail of its last pattern, is
+        // handed out whole as a range, never drained one element at a time
+        // (IKE-Network/ike-issues#1257).
         ArrayDeque<Spliterator.OfLong> queue = new ArrayDeque<>();
         queue.add(entityKeys);
 
@@ -638,47 +640,21 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             Spliterator.OfLong s = queue.pollFirst();
             Spliterator.OfLong split = s.trySplit();
             if (split != null) {
-                // Recurse on both halves
                 queue.addFirst(s);
                 queue.addFirst(split);
                 continue;
             }
-            // No further split: if this is a per-pattern range, collect it
-            if (s instanceof SpliteratorForRocksKeyOfPattern sp) {
-                ranges.add(sp);
-            } else {
-                // Fallback: if we encounter a non-per-pattern spliterator that can’t split,
-                // try one more split attempt loop (defensive); otherwise, it should be tiny.
-                // In practice, SpliteratorForEntityKeys.trySplit() hands out per-pattern spliterators,
-                // so we should almost always end up here as SpliteratorForRocksKeyOfPattern.
-                // If this happens, we can drain it sequentially as a very small tail:
-                s.forEachRemaining((LongConsumer) (rocksKey) -> {
-                    // Create a 1-element range to reuse scanEntitiesInRange
-                    int pattern = (int) ((rocksKey >>> 48) & 0xFFFF);
-                    long elementSeq = (rocksKey & 0xFFFFFFFFFFFFL);
-                    SpliteratorForRocksKeyOfPattern singleton =
-                            new SpliteratorForRocksKeyOfPattern(pattern, elementSeq, elementSeq + 1);
-                    this.entityMap.scanEntitiesInRange(singleton, action);
-                });
+            switch (s) {
+                case SpliteratorForRocksKeyOfPattern range -> ranges.add(range);
+                case SpliteratorForEntityKeys composite -> ranges.addAll(composite.drainToRanges());
+                default -> throw new IllegalStateException("A whole-store scan splits per-pattern ranges, not "
+                        + s.getClass().getName());
             }
         }
 
-        LOG.info("Found {} EntityKey ranges to process.", ranges.size());
-
-        // 2) Run each range in parallel with structured concurrency
-        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
-            for (SpliteratorForRocksKeyOfPattern range : ranges) {
-                scope.fork(() -> {
-                    this.entityMap.scanEntitiesInRange((LongSpliteratorOfPattern) range, action);
-                    return null;
-                });
-            }
-            scope.join();
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        LOG.debug("Scanning {} ranges, {} at a time", ranges.size(), BoundedForks.SCAN_PARALLELISM);
+        BoundedForks.forkAll(ranges, BoundedForks.SCAN_PARALLELISM,
+                range -> this.entityMap.scanEntitiesInRange(range, action));
     }
 
     @Override
@@ -713,19 +689,8 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             }
         }
 
-        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
-            for (LongSpliteratorOfPattern part : subSpliterators) {
-                scope.fork(() -> {
-                    this.entityMap.scanEntitiesInRange(part, (bytes, nid) -> action.accept(bytes, nid));
-                    return null;
-                });
-            }
-            scope.join();
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        BoundedForks.forkAll(subSpliterators, BoundedForks.SCAN_PARALLELISM,
+                part -> this.entityMap.scanEntitiesInRange(part, (bytes, nid) -> action.accept(bytes, nid)));
     }
 
     @Override
@@ -947,23 +912,10 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             }
         }
 
-        LOG.info("Split into {} sub-tasks for parallel processing", subSpliterators.size());
-
-        // Process chunks in parallel using structured concurrency
-        try (StructuredTaskScope<Object, Void, SubtaskFailedException> scope = StructuredScopes.open()) {
-            for (Spliterator.OfLong subSpliterator : subSpliterators) {
-                scope.fork(() -> {
-                    subSpliterator.forEachRemaining((LongConsumer) rocksKey ->
-                            procedure.accept(NidLayout.active().nidForRocksKey(rocksKey)));
-                    return null;
-                });
-            }
-            scope.join();
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        LOG.debug("Enumerating semantics in {} chunks, {} at a time", subSpliterators.size(), BoundedForks.SCAN_PARALLELISM);
+        BoundedForks.forkAll(subSpliterators, BoundedForks.SCAN_PARALLELISM,
+                subSpliterator -> subSpliterator.forEachRemaining((LongConsumer) rocksKey ->
+                        procedure.accept(NidLayout.active().nidForRocksKey(rocksKey))));
     }
 
     @Override
