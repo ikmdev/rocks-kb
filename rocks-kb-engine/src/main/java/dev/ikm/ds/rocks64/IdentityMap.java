@@ -17,6 +17,7 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.SstFileWriter;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
+import org.rocksdb.RocksIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -164,6 +165,39 @@ final class IdentityMap {
     }
 
     /** The nid of a UUID the store knows, from memory first and then the column. */
+    /**
+     * The UUIDs minted for a nid: the tables held in memory, then the column, scanned whole.
+     * Correctness over speed, for a component referenced but never written, which has no
+     * record to read its UUIDs from. Empty when the nid was never minted here.
+     */
+    Optional<PublicId> publicIdOf(long nid) {
+        List<UUID> uuids = new ArrayList<>();
+        fixed.forEach((uuid, bound) -> {
+            if (bound == nid) {
+                uuids.add(uuid);
+            }
+        });
+        for (UuidNidTable table : new UuidNidTable[]{held, writing}) {
+            if (table != null) {
+                table.forEachSorted(0, UuidNidTable.STRIPES, (msb, lsb, found) -> {
+                    if (found == nid) {
+                        uuids.add(new UUID(msb, lsb));
+                    }
+                });
+            }
+        }
+        if (uuids.isEmpty() && !columnHoldsOnlyFixed) {
+            try (RocksIterator iterator = db.newIterator(handle)) {
+                for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    if (Keys.nid(iterator.value()) == nid) {
+                        uuids.add(Keys.uuid(iterator.key()));
+                    }
+                }
+            }
+        }
+        return uuids.isEmpty() ? Optional.empty() : Optional.of(PublicIds.of(uuids.toArray(new UUID[0])));
+    }
+
     Optional<Long> nid(UUID uuid) {
         long nid = lookup(uuid);
         return nid == 0 ? Optional.empty() : Optional.of(nid);

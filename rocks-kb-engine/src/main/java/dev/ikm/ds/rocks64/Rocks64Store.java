@@ -517,14 +517,18 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
         return identityMap.nid(uuid).map(EntityKey::ofNid);
     }
 
-    /** The UUIDs of the entity stored under a nid, from its record. */
+    /**
+     * The UUIDs of the entity stored under a nid, from its record; for a nid minted and never
+     * written, from the identity map, by a scan.
+     */
     @Override
     public PublicId publicIdForNid(long nid) {
         byte[] record = getBytes(nid);
-        if (record == null) {
-            throw new IllegalStateException("No entity is stored for nid " + nid + " in " + name);
+        if (record != null) {
+            return PublicIds.of(EntityRecordFormat2.uuids(record).toArray(new UUID[0]));
         }
-        return PublicIds.of(EntityRecordFormat2.uuids(record).toArray(new UUID[0]));
+        return identityMap.publicIdOf(nid).orElseThrow(() ->
+                new IllegalStateException("No entity is stored for nid " + nid + " in " + name + ", and no public id was minted for it"));
     }
 
     // ---------- records ----------
