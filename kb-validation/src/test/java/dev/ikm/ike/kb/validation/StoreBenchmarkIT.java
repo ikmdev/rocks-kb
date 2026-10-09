@@ -78,13 +78,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@value #BOUND} times slower than its reference fails; an operation whose reference is under
  * {@value #NOISE_FLOOR_MICROS} microseconds is reported but not bounded, being noise at this
  * size. With no reference for the machine, the timings are written to
- * {@code target/store-benchmarks/<machine>/<store>.properties}, to be copied into place.
+ * {@code target/store-benchmarks/<machine>/<store>.properties}, to be copied into place, and to
+ * {@code target/measurements/}, where the build report reads them (IKE-Network/ike-issues#1207).
  * <p>The stages run without the agents of the test JVM ({@link ForkedJvm#runWithoutAgents}):
  * the JaCoCo agent failsafe attaches made the parallel operations slower than the sequential
  * ones (IKE-Network/ike-issues#1246, #1257). A reference records what its stages ran with,
  * under {@value ForkedJvm#AGENTS_PROPERTY}, and a run with other agents fails against it.
  */
 @Tag("starter-set")
+@Tag("performance")
 class StoreBenchmarkIT {
     private static final Logger LOG = LoggerFactory.getLogger(StoreBenchmarkIT.class);
 
@@ -511,6 +513,7 @@ class StoreBenchmarkIT {
         try (OutputStream stream = Files.newOutputStream(file)) {
             written.store(stream, "Store benchmark reference: " + provider + " on " + machine);
         }
+        Measurements.publish("bench.starter." + provider.name().toLowerCase(), written);
         return file;
     }
 }

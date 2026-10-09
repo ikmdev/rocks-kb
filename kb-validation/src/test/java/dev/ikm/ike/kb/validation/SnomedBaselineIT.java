@@ -81,7 +81,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * under {@value #NOISE_FLOOR_MICROS} µs, is reported but not bounded, being noise at this size;
  * counts must equal the reference's. Every run's measures are written to
  * {@code target/store-benchmarks/<machine>/snomed-<store>.properties}, to be copied into place
- * as the reference or compared with it. Runs with {@code -Psnomed}. A subset of the stores runs with
+ * as the reference or compared with it, and to {@code target/measurements/}, where the build
+ * report reads them (IKE-Network/ike-issues#1207). Runs with {@code -Psnomed}. A subset of the stores runs with
  * {@code -Dstore.providers=<name>,...}.
  * <p>The stages run without the agents of the test JVM ({@link ForkedJvm#runWithoutAgents}):
  * the JaCoCo agent failsafe attaches made the parallel scan fifteen times slower, and was what
@@ -89,6 +90,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@value ForkedJvm#AGENTS_PROPERTY}, and a run with other agents fails against it.
  */
 @Tag("snomed")
+@Tag("performance")
 class SnomedBaselineIT {
 
     private static final Logger LOG = LoggerFactory.getLogger(SnomedBaselineIT.class);
@@ -253,6 +255,7 @@ class SnomedBaselineIT {
         try (OutputStream stream = Files.newOutputStream(file)) {
             written.store(stream, "SNOMED CT baselines: " + provider + " on " + machine);
         }
+        Measurements.publish("bench.snomed." + provider.name().toLowerCase(), written);
         return file;
     }
 

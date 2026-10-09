@@ -68,11 +68,13 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * times its reference fails, unless the reference is under {@value #NOISE_FLOOR_MILLIS} ms; a
  * count must equal the reference's. Every run's measures are written to
  * {@code target/store-benchmarks/<machine>/identities-<store>.properties}, to be copied into
- * place as the reference. The stage runs without the agents of the test JVM
+ * place as the reference, and to {@code target/measurements/}, where the build report reads
+ * them (IKE-Network/ike-issues#1207). The stage runs without the agents of the test JVM
  * ({@link ForkedJvm#runWithoutAgents}), and under JFR with {@code -Dtinkar.jfr.dir=<directory>}
  * ({@link StoreStage}).
  */
 @Tag("dex")
+@Tag("performance")
 class IdentityRegistrationIT {
 
     private static final Logger LOG = LoggerFactory.getLogger(IdentityRegistrationIT.class);
@@ -204,6 +206,7 @@ class IdentityRegistrationIT {
         try (OutputStream stream = Files.newOutputStream(file)) {
             written.store(stream, "Identity registration: " + provider + " on " + machine);
         }
+        Measurements.publish("bench.identities." + provider.name().toLowerCase(), written);
         return file;
     }
 
