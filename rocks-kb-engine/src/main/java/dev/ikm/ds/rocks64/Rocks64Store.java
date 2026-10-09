@@ -560,15 +560,17 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
             throw new IllegalArgumentException("A 64-bit store holds format 2 records; nid " + nid + " was given "
                     + (value == null || value.length == 0 ? "no record" : "a format " + value[0] + " record"));
         }
-        if (sourceObject instanceof SemanticEntity semantic) {
-            recordMap.addReference(semantic.referencedComponentNid(), nid);
-        }
         // A record whose nid was minted in this load phase has nothing stored: it joins its
         // pattern's run, ingested in nid order, instead of the writer's queue.
         recordMap.put(nid, value, loadPhase && identityMap.fresh(nid));
         byte[] merged = recordMap.get(nid);
         if (merged == null) {
             throw new IllegalStateException("Record " + nid + " read as absent right after its put: " + recordMap.whereIs(nid));
+        }
+        // The reference after the record: a reader following references from the referenced
+        // component finds a record at every nid it is given.
+        if (sourceObject instanceof SemanticEntity semantic) {
+            recordMap.addReference(semantic.referencedComponentNid(), nid);
         }
         writeSequence.increment();
 

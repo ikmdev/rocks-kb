@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
 
@@ -102,6 +103,12 @@ final class IdentityMap {
     private volatile boolean columnHoldsOnlyFixed;
     private final LockTable locks = new LockTable();
     private final ReentrantLock flushLock = new ReentrantLock();
+    /**
+     * Held shared by a mint while it puts into the held table, exclusively by a flush while it
+     * swaps that table out: a mint never lands in a table being written, whose sorted stripes
+     * would not carry it, and whose entries are dropped once written.
+     */
+    private final ReentrantReadWriteLock swap = new ReentrantReadWriteLock();
 
     IdentityMap(RocksDB db, ColumnFamilyHandle handle, Counters counters, SstIngest ingest) {
         this.db = db;
@@ -336,10 +343,15 @@ final class IdentityMap {
             } else {
                 nid = known;
             }
-            for (UUID uuid : uuids) {
-                if (lookup(uuid) == 0) {
-                    held.putIfAbsent(uuid, nid);
+            swap.readLock().lock();
+            try {
+                for (UUID uuid : uuids) {
+                    if (lookup(uuid) == 0) {
+                        held.putIfAbsent(uuid, nid);
+                    }
                 }
+            } finally {
+                swap.readLock().unlock();
             }
         } finally {
             locks.unlock(id);
@@ -444,12 +456,18 @@ final class IdentityMap {
                 columnHoldsOnlyFixed = false;
                 writing = null;
             }
-            UuidNidTable table = held;
-            if (table.isEmpty()) {
-                return;
+            UuidNidTable table;
+            swap.writeLock().lock();
+            try {
+                table = held;
+                if (table.isEmpty()) {
+                    return;
+                }
+                writing = table;
+                held = new UuidNidTable();
+            } finally {
+                swap.writeLock().unlock();
             }
-            writing = table;
-            held = new UuidNidTable();
             write(table);
             columnHoldsOnlyFixed = false;
             writing = null;

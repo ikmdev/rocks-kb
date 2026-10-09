@@ -194,6 +194,52 @@ class RecordMapTest {
         }
     }
 
+    /**
+     * A put that saw the phase on an instant before it ended must not leave a run behind: the
+     * switch waits for every offer in flight, and the drain that follows it finds every run.
+     */
+    @Test
+    void putsRacingThePhaseEndLeaveNoRunBehind(@TempDir File dir) throws Exception {
+        try (TestDb db = new TestDb(dir)) {
+            RecordMap map = new RecordMap(db.db, db.handle(Rocks64Store.Family.ENTITIES), db.handle(Rocks64Store.Family.REFERENCES),
+                    stamp -> false, db.recordIngest(4096, 64));
+            map.setLoadPhase(true);
+            int threads = 16;
+            int perThread = 3_000;
+            java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(threads);
+            java.util.List<Thread> workers = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                int from = t * perThread;
+                Thread worker = new Thread(() -> {
+                    started.countDown();
+                    for (int i = 0; i < perThread; i++) {
+                        long nid = Nid.compose64(3, from + i + 1);
+                        map.put(nid, Records.concept(nid, STAMP_A), true);
+                    }
+                });
+                workers.add(worker);
+                worker.start();
+            }
+            started.await();
+            Thread.sleep(20);
+            map.setLoadPhase(false);
+            int openRuns = map.openRuns();
+            for (Thread worker : workers) {
+                worker.join();
+            }
+            assertEquals(0, openRuns, "runs open right after the phase ended");
+            map.awaitPendingWrites();
+            int missing = 0;
+            for (int i = 1; i <= threads * perThread; i++) {
+                if (map.stored(Nid.compose64(3, i)) == null) {
+                    missing++;
+                }
+            }
+            assertEquals(0, missing, "records missing from RocksDB after the phase and the queue drained");
+            map.close();
+        }
+    }
+
     @Test
     void sortPairsOrdersByBothKeys() {
         long[] a = {5, 3, 5, 1, 3, 5, 2, 9, 9, 0, 7, 7, 7, 4, 6, 8, 5, 3, 1, 2};

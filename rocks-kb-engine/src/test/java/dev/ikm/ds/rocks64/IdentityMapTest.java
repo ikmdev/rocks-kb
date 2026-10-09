@@ -57,6 +57,66 @@ class IdentityMapTest {
         }
     }
 
+    /**
+     * A mint racing a flush is never lost: the mint waits for the swap of the held table, or
+     * the swap waits for the mint, so no entry lands in a table whose sorted stripes are
+     * already being written and dropped.
+     */
+    @Test
+    void mintsRacingAFlushAreNeverLost(@TempDir File dir) throws Exception {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            PublicId patternId = id(UUID.randomUUID());
+            maps.identities().nidFor(EntityBinding.Pattern.pattern(), patternId);
+            int threads = 8;
+            int perThread = 4_000;
+            UUID[][] minted = new UUID[threads][perThread];
+            long[][] nids = new long[threads][perThread];
+            java.util.concurrent.atomic.AtomicBoolean minting = new java.util.concurrent.atomic.AtomicBoolean(true);
+            Thread flusher = new Thread(() -> {
+                while (minting.get()) {
+                    maps.identities().flush();
+                    Thread.onSpinWait();
+                }
+            });
+            java.util.List<Thread> workers = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                int thread = t;
+                Thread worker = new Thread(() -> {
+                    for (int i = 0; i < perThread; i++) {
+                        UUID uuid = UUID.randomUUID();
+                        minted[thread][i] = uuid;
+                        nids[thread][i] = maps.identities().nidFor(patternId, id(uuid));
+                    }
+                });
+                workers.add(worker);
+            }
+            flusher.start();
+            workers.forEach(Thread::start);
+            for (Thread worker : workers) {
+                worker.join();
+            }
+            minting.set(false);
+            flusher.join();
+            maps.identities().flush();
+            int lost = 0;
+            int wrong = 0;
+            for (int t = 0; t < threads; t++) {
+                for (int i = 0; i < perThread; i++) {
+                    long found = maps.identities().nid(minted[t][i]).orElse(0L);
+                    if (found == 0) {
+                        lost++;
+                    } else if (found != nids[t][i]) {
+                        wrong++;
+                    }
+                }
+            }
+            assertEquals(0, lost, "identities minted during flushes that read as unknown afterwards");
+            assertEquals(0, wrong, "identities that read as another nid afterwards");
+        }
+    }
+
     @Test
     void aColumnWithoutTheBindingsIsRefused(@TempDir File dir) {
         try (TestDb db = new TestDb(dir)) {

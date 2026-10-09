@@ -180,6 +180,43 @@ class Rocks64StoreTest {
         }
     }
 
+    /**
+     * A reference is published after its record: a reader following references from the
+     * referenced component finds a record at every nid it is given, even while the semantics
+     * are being merged.
+     */
+    @Test
+    void aReferenceIsNeverFoundBeforeItsRecord() throws Exception {
+        Rocks64Store store = Rocks64Store.open();
+        try {
+            PublicId patternId = PublicIds.of(UUID.randomUUID());
+            long pattern = store.getEntityKey(EntityBinding.Pattern.pattern(), patternId).nid();
+            long concept = store.getEntityKey(EntityBinding.Concept.pattern(), PublicIds.of(UUID.randomUUID())).nid();
+            int merges = 1_000;
+            java.util.concurrent.atomic.AtomicInteger dangling = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicBoolean merging = new java.util.concurrent.atomic.AtomicBoolean(true);
+            Thread reader = new Thread(() -> {
+                while (merging.get()) {
+                    for (long nid : store.semanticNidsForComponent(concept)) {
+                        if (store.getBytes(nid) == null) {
+                            dangling.incrementAndGet();
+                        }
+                    }
+                }
+            });
+            reader.start();
+            for (int i = 0; i < merges; i++) {
+                mergeSemantic(store, patternId, pattern, concept);
+            }
+            merging.set(false);
+            reader.join();
+            assertEquals(merges, store.semanticNidsForComponent(concept).length, "references to the concept");
+            assertEquals(0, dangling.get(), "references found before their record");
+        } finally {
+            store.close();
+        }
+    }
+
     private static long mergeSemantic(Rocks64Store store, PublicId patternId, long pattern, long concept) {
         UUID uuid = UUID.randomUUID();
         long nid = store.getEntityKey(patternId, PublicIds.of(uuid)).nid();

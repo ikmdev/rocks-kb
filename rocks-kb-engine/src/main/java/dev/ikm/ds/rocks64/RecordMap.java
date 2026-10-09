@@ -98,6 +98,12 @@ final class RecordMap {
 
     private final Ingest ingest;
     private volatile boolean loadPhase;
+    /**
+     * Held shared by a put while it decides between a run and the queue, exclusively by the
+     * phase switch: no offer is in flight across the switch, so the drain that follows an end
+     * leaves no run behind.
+     */
+    private final ReentrantReadWriteLock phase = new ReentrantReadWriteLock();
     /** Load phase: the fresh records of each pattern, sorted by nid, until the run is written. */
     private final ConcurrentHashMap<Integer, Run> runs = new ConcurrentHashMap<>();
     /** Runs sealed and being written: readable until RocksDB has them. */
@@ -148,7 +154,12 @@ final class RecordMap {
      * which bypasses the memtable and compaction. Ending the phase writes what remains.
      */
     void setLoadPhase(boolean loadPhase) {
-        this.loadPhase = loadPhase && ingest != null;
+        phase.writeLock().lock();
+        try {
+            this.loadPhase = loadPhase && ingest != null;
+        } finally {
+            phase.writeLock().unlock();
+        }
         if (!this.loadPhase) {
             // Every end drains the runs and the chunk, a repeated end included: a record left in
             // a run by a put that saw the phase still on would read fine, but reach RocksDB only
@@ -176,9 +187,16 @@ final class RecordMap {
      */
     void put(long nid, byte[] record, boolean fresh) {
         failIfWriterDied();
-        if (fresh && loadPhase) {
-            offerToRun(nid, record);
-            return;
+        if (fresh) {
+            phase.readLock().lock();
+            try {
+                if (loadPhase) {
+                    offerToRun(nid, record);
+                    return;
+                }
+            } finally {
+                phase.readLock().unlock();
+            }
         }
         pending.merge(nid, record, this::union);
         long sequence = enqueued.incrementAndGet();
@@ -600,6 +618,11 @@ final class RecordMap {
                 .append(" ingestedRecords=").append(recordsIngested.get())
                 .append(" runsWritten=").append(runsWritten.get());
         return where.toString();
+    }
+
+    /** The runs open at this instant: none, once a phase has ended. */
+    int openRuns() {
+        return runs.size();
     }
 
     /** Records and references ingested as SST files in load phases, for the log and the tests. */
