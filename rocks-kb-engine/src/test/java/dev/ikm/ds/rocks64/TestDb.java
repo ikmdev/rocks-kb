@@ -53,6 +53,19 @@ final class TestDb implements AutoCloseable {
         return new IdentityMap.SstIngest(options, new File(directory, "ingest"), threshold);
     }
 
+    /** Load-phase ingestion for a record map, with the entity and reference columns' options. */
+    RecordMap.Ingest recordIngest() {
+        return recordIngest(RecordMap.RUN_BYTES, RecordMap.CHUNK_PAIRS);
+    }
+
+    RecordMap.Ingest recordIngest(long runBytes, int chunkPairs) {
+        Options entities = new Options(this.options, familyOptions.get(Rocks64Store.Family.ENTITIES.ordinal()));
+        Options references = new Options(this.options, familyOptions.get(Rocks64Store.Family.REFERENCES.ordinal()));
+        ingestOptions.add(entities);
+        ingestOptions.add(references);
+        return new RecordMap.Ingest(entities, references, new File(directory, "ingest"), runBytes, chunkPairs);
+    }
+
     void putRecord(long nid, byte[] record) {
         try {
             db.put(handle(Rocks64Store.Family.ENTITIES), Keys.of(nid), record);

@@ -127,6 +127,9 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
     private final IdentityMap identityMap;
     /** The identity column's options as a whole, for the SST files the identity map writes. */
     private final Options identityFileOptions;
+    /** The entity and reference columns' options as a whole, for the SST files a load phase ingests. */
+    private final Options entityFileOptions;
+    private final Options referenceFileOptions;
     private final RecordMap recordMap;
     private final Scanner scanner;
 
@@ -245,7 +248,10 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
                     StoreFormat.verify(StoreFormat.read(db, handle(Family.FORMAT)), rocks);
                     identityMap.verifyBindings();
                 }
-                this.recordMap = new RecordMap(db, handle(Family.ENTITIES), handle(Family.REFERENCES), this::isCanceledStampNid);
+                this.entityFileOptions = new Options(dbOptions, descriptors.get(Family.ENTITIES.ordinal()).getOptions());
+                this.referenceFileOptions = new Options(dbOptions, descriptors.get(Family.REFERENCES.ordinal()).getOptions());
+                this.recordMap = new RecordMap(db, handle(Family.ENTITIES), handle(Family.REFERENCES), this::isCanceledStampNid,
+                        new RecordMap.Ingest(entityFileOptions, referenceFileOptions, new File(root, "rocks-ingest")));
                 this.scanner = new Scanner(db, handle(Family.ENTITIES), counters);
             } catch (RocksDBException | RuntimeException e) {
                 closeDatabaseQuietly();
@@ -415,6 +421,12 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
         // The bloom filters belong to the options and are freed with them; closing them here
         // too crashed the native layer at shutdown in the legacy engine.
         filters.clear();
+        if (entityFileOptions != null) {
+            entityFileOptions.close();
+        }
+        if (referenceFileOptions != null) {
+            referenceFileOptions.close();
+        }
         if (identityFileOptions != null) {
             try {
                 identityFileOptions.close();
@@ -551,10 +563,12 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
         if (sourceObject instanceof SemanticEntity semantic) {
             recordMap.addReference(semantic.referencedComponentNid(), nid);
         }
-        recordMap.put(nid, value);
+        // A record whose nid was minted in this load phase has nothing stored: it joins its
+        // pattern's run, ingested in nid order, instead of the writer's queue.
+        recordMap.put(nid, value, loadPhase && identityMap.fresh(nid));
         byte[] merged = recordMap.get(nid);
         if (merged == null) {
-            throw new IllegalStateException("Merged bytes should not be null");
+            throw new IllegalStateException("Record " + nid + " read as absent right after its put: " + recordMap.whereIs(nid));
         }
         writeSequence.increment();
 
@@ -841,8 +855,21 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
     /** A load phase holds every identity in memory; leaving it writes them to the column once ({@link IdentityMap}). */
     @Override
     public void setLoadPhase(boolean loadPhase) {
-        this.loadPhase = loadPhase;
-        identityMap.setLoadPhase(loadPhase);
+        if (loadPhase) {
+            this.loadPhase = true;
+            identityMap.setLoadPhase(true);
+            recordMap.setLoadPhase(true);
+            return;
+        }
+        // Ending: the runs and the chunk first, while the fresh nids are still known; then the identities.
+        boolean wasLoading = this.loadPhase;
+        recordMap.setLoadPhase(false);
+        this.loadPhase = false;
+        identityMap.setLoadPhase(false);
+        if (wasLoading) {
+            LOG.info("Load phase ended: {} record(s) and {} reference(s) ingested as SST files",
+                    String.format("%,d", recordMap.recordsIngested()), String.format("%,d", recordMap.referencesIngested()));
+        }
     }
 
     @Override

@@ -27,6 +27,8 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.BitSet;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -94,6 +96,8 @@ final class IdentityMap {
     /** The entries a write is writing, readable until they are in the column; null between writes. */
     private volatile UuidNidTable writing;
     private volatile boolean loadPhase;
+    /** The nids minted in the current load phase, by pattern and element: nothing is stored for them yet. */
+    private final ConcurrentHashMap<Integer, BitSet> fresh = new ConcurrentHashMap<>();
     /** Whether the column holds nothing but the fixed bindings, which memory answers: true for a store created here until a write. */
     private volatile boolean columnHoldsOnlyFixed;
     private final LockTable locks = new LockTable();
@@ -326,6 +330,9 @@ final class IdentityMap {
             if (known == null) {
                 nid = allocator.getAsLong();
                 allocated = true;
+                if (loadPhase) {
+                    markFresh(nid);
+                }
             } else {
                 nid = known;
             }
@@ -385,7 +392,29 @@ final class IdentityMap {
     void setLoadPhase(boolean loadPhase) {
         this.loadPhase = loadPhase;
         if (!loadPhase) {
+            fresh.clear();
             flush();
+        }
+    }
+
+    private void markFresh(long nid) {
+        BitSet elements = fresh.computeIfAbsent(Nid.patternSequence64(nid), pattern -> new BitSet());
+        synchronized (elements) {
+            elements.set(Nid.elementSequence64(nid));
+        }
+    }
+
+    /** Whether a nid was minted in the current load phase, so that nothing is stored for it. */
+    boolean fresh(long nid) {
+        if (!loadPhase) {
+            return false;
+        }
+        BitSet elements = fresh.get(Nid.patternSequence64(nid));
+        if (elements == null) {
+            return false;
+        }
+        synchronized (elements) {
+            return elements.get(Nid.elementSequence64(nid));
         }
     }
 
