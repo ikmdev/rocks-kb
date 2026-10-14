@@ -295,6 +295,34 @@ final class RecordMap {
      * RocksDB. A scan reads through a snapshot and does not consult what is pending, so it waits
      * here first.
      */
+    /**
+     * Merges a record in after taking the version written under one stamp out of the record
+     * stored for the nid. Every other write here is a union, which can only add versions; this is
+     * the one that removes one. Once every queued write has landed — so none still carrying the
+     * version can bring it back — the stored record without it is united with the incoming one and
+     * written by a put that replaces rather than unions, in one step: the union drops versions of
+     * canceled stamps, so merging a canceled version in while the withdrawn one still stood would
+     * lose it. The entity layer holds the nid's put lock across the call, so no producer writes
+     * the nid meanwhile.
+     *
+     * @param nid      the entity's nid
+     * @param stampNid the stamp whose version is withdrawn
+     * @param record   the record to merge in
+     * @return the record now stored
+     */
+    byte[] putReplacingVersion(long nid, long stampNid, byte[] record) {
+        failIfWriterDied();
+        awaitPendingWrites();
+        byte[] stored = stored(nid);
+        byte[] merged = union(stored == null ? null : EntityRecordFormat2.withoutVersion(stored, stampNid), record);
+        try {
+            db.put(entities, Keys.of(nid), merged);
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+        return merged;
+    }
+
     void awaitPendingWrites() {
         if (loadPhase || !sealed.isEmpty() || !runs.isEmpty()) {
             ingestEverything();

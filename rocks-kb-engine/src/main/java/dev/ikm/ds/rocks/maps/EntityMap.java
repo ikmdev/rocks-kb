@@ -354,6 +354,24 @@ public class EntityMap
     }
 
 
+    /**
+     * Withdraws the version written under one stamp from the entity under {@code rocksKey}: each
+     * version lies under a key of its own, so once every write already queued has landed — none of
+     * them can then bring the version back — that key is deleted. A stamp entity's versions are
+     * never withdrawn.
+     *
+     * @param rocksKey the entity's rocks key
+     * @param stampNid the stamp whose version is withdrawn
+     */
+    public void withdrawVersion(long rocksKey, int stampNid) {
+        awaitPendingWrites();
+        try {
+            delete(KeyUtil.elementVersionKey(rocksKey, Get.stampSequenceForStampNid(stampNid)));
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public void put(EntityKey entityKey, byte[] value) {
         if (entityKey instanceof EntityKey.EntityVersionKey) {
             throw new IllegalArgumentException("EntityVersionKey should not be used for put, only the EntityKey.");

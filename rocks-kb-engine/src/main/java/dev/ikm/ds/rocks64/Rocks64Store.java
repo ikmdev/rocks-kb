@@ -64,6 +64,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Supplier;
 import java.util.function.ObjLongConsumer;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -552,21 +553,35 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
     }
 
     @Override
+    public byte[] mergeReplacingVersion(long nid, long patternNid, long referencedComponentNid, long withdrawnStampNid,
+                                        byte[] value, Object sourceObject, DataActivity activity) {
+        return merge(nid, value, sourceObject, activity, () -> recordMap.putReplacingVersion(nid, withdrawnStampNid, value));
+    }
+
+    @Override
     public byte[] merge(long nid, long patternNid, long referencedComponentNid, byte[] value, Object sourceObject,
                         DataActivity activity) {
+        return merge(nid, value, sourceObject, activity, () -> {
+            // A record whose nid was minted in this load phase has nothing stored: it joins its
+            // pattern's run, ingested in nid order, instead of the writer's queue.
+            recordMap.put(nid, value, loadPhase && identityMap.fresh(nid));
+            byte[] merged = recordMap.get(nid);
+            if (merged == null) {
+                throw new IllegalStateException("Record " + nid + " read as absent right after its put: " + recordMap.whereIs(nid));
+            }
+            return merged;
+        });
+    }
+
+    /** A merge: the record written by {@code write}, then its references, change sets and index. */
+    private byte[] merge(long nid, byte[] value, Object sourceObject, DataActivity activity, Supplier<byte[]> write) {
         checkOpen();
         Nid.validate64(nid);
         if (!EntityRecordFormat2.isFormat2(value)) {
             throw new IllegalArgumentException("A 64-bit store holds format 2 records; nid " + nid + " was given "
                     + (value == null || value.length == 0 ? "no record" : "a format " + value[0] + " record"));
         }
-        // A record whose nid was minted in this load phase has nothing stored: it joins its
-        // pattern's run, ingested in nid order, instead of the writer's queue.
-        recordMap.put(nid, value, loadPhase && identityMap.fresh(nid));
-        byte[] merged = recordMap.get(nid);
-        if (merged == null) {
-            throw new IllegalStateException("Record " + nid + " read as absent right after its put: " + recordMap.whereIs(nid));
-        }
+        byte[] merged = write.get();
         // The reference after the record: a reader following references from the referenced
         // component finds a record at every nid it is given.
         if (sourceObject instanceof SemanticEntity semantic) {

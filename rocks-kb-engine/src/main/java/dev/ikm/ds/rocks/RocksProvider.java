@@ -727,6 +727,22 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     }
 
     @Override
+    public byte[] mergeReplacingVersion(long nid, long patternNid, long referencedComponentNid, long withdrawnStampNid,
+                                        byte[] value, Object sourceObject, DataActivity activity) {
+        checkOpen();
+        // The value merges in first and the withdrawn version's key goes after, so a reader in
+        // between sees both versions, never neither; the value itself never carries the withdrawn one.
+        merge(nid, patternNid, referencedComponentNid, value, sourceObject, activity);
+        long rocksKey = rocksKeyForNid(Nid.narrowChecked(nid));
+        this.entityMap.withdrawVersion(rocksKey, Nid.narrowChecked(withdrawnStampNid));
+        byte[] remaining = this.entityMap.get(rocksKey);
+        if (remaining == null) {
+            throw new IllegalStateException("Merged bytes should not be null");
+        }
+        return remaining;
+    }
+
+    @Override
     public byte[] merge(long nid, long patternNid, long referencedComponentNid, byte[] value, final Object sourceObject, final DataActivity activity) {
         checkOpen();
         if (Nid.isNone(nid)) {
