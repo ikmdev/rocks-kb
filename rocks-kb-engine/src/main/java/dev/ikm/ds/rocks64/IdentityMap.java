@@ -7,7 +7,7 @@ import dev.ikm.tinkar.common.service.IdentityAdvisories;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.terms.EntityBinding;
-import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.PatternFacade;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.EnvOptions;
 import org.rocksdb.IngestExternalFileOptions;
@@ -124,9 +124,9 @@ final class IdentityMap {
 
     /** A fixed pattern: the UUIDs of its binding and the nid it has in every 64-bit store. */
     record FixedPattern(String description, UUID[] uuids, long nid) {
-        private static FixedPattern of(EntityProxy.Pattern binding, long nid) {
+        private static FixedPattern of(PatternFacade binding, long nid) {
             // Read the proxy's UUIDs and description only: its nid and hash ask the running provider.
-            return new FixedPattern(binding.description(), binding.asUuidArray(), nid);
+            return new FixedPattern(binding.description(), binding.publicId().asUuidArray(), nid);
         }
     }
 

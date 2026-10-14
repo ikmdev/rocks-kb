@@ -18,7 +18,6 @@ package dev.ikm.ike.kb.validation;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 import org.eclipse.collections.api.list.primitive.MutableLongList;
 
-import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Coordinates;
@@ -28,6 +27,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculatorWithCache;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
+import dev.ikm.tinkar.terms.KernelPattern;
 import org.eclipse.collections.api.factory.primitive.LongLists;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 import org.eclipse.collections.api.list.primitive.MutableLongList;
@@ -217,7 +217,7 @@ class StoreBenchmarkIT {
             ImmutableLongList ordered = all.toSortedList().toImmutable();
             ImmutableLongList shuffled = shuffle(ordered);
             ImmutableLongList componentsShuffled = shuffle(LongLists.immutable.withAll(concepts).newWithAll(semantics));
-            long descriptionPattern = KernelTerm.DESCRIPTION_PATTERN.nid();
+            long descriptionPattern = KernelPattern.DESCRIPTION_PATTERN.nid();
             ViewCalculator view = ViewCalculatorWithCache.getCalculator(ViewCoordinateRecord.make(
                     Coordinates.Stamp.DevelopmentLatest(), Coordinates.Language.UsEnglishRegularName(),
                     Coordinates.Logic.ElPlusPlus(), Coordinates.Navigation.inferred(), Coordinates.Edit.Default()));

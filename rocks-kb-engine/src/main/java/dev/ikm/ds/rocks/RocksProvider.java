@@ -27,7 +27,7 @@ import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
 import dev.ikm.tinkar.common.service.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
-import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.PatternFacade;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
 import org.eclipse.collections.api.block.procedure.primitive.LongProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
@@ -889,12 +889,12 @@ ensure they're not already freed when ColumnFamilyOptions closes.
      * Visits the elements keyed under a binding pattern. A store nothing has been written to
      * has no key for the pattern yet, and so no elements, rather than a nid to fail to find.
      */
-    private void forEachElementOfBindingPattern(EntityProxy.Pattern bindingPattern, IntProcedure procedure) {
+    private void forEachElementOfBindingPattern(PatternFacade bindingPattern, IntProcedure procedure) {
         bindingPatternKey(bindingPattern).ifPresent(patternKey -> forEachElementOfPattern(Nid.narrowChecked(patternKey.nid()), procedure));
     }
 
-    private Optional<EntityKey> bindingPatternKey(EntityProxy.Pattern bindingPattern) {
-        for (UUID uuid : bindingPattern.asUuidArray()) {
+    private Optional<EntityKey> bindingPatternKey(PatternFacade bindingPattern) {
+        for (UUID uuid : bindingPattern.publicId().asUuidArray()) {
             Optional<EntityKey> key = getEntityKey(uuid);
             if (key.isPresent()) {
                 return key;
@@ -906,7 +906,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void forEachSemanticNid(LongProcedure procedure) {
         BitSet excludedPatternSequences = new BitSet();
-        for (EntityProxy.Pattern bindingPattern : List.of(EntityBinding.Concept.pattern(),
+        for (PatternFacade bindingPattern : List.of(EntityBinding.Concept.pattern(),
                 EntityBinding.Stamp.pattern(), EntityBinding.Pattern.pattern())) {
             bindingPatternKey(bindingPattern).ifPresent(key ->
                     excludedPatternSequences.set((int) NidLayout.active().decodeElementSequence(key.nid())));

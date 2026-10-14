@@ -41,7 +41,7 @@
             <artifactId>rocks-kb-engine</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- The IKE starter set's bindings (IkeTerms), for the components the starter-set tests name. -->
+        <!-- The IKE starter set's bindings (IkeConcept, IkePattern), for the components the starter-set tests name. -->
         <dependency>
             <groupId>network.ike.foundation</groupId>
             <artifactId>ike-bindings</artifactId>

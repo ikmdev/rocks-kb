@@ -2,8 +2,7 @@ package dev.ikm.ike.kb.validation;
 
 import org.eclipse.collections.api.set.primitive.MutableLongSet;
 
-import network.ike.foundation.ike.bindings.IkeTerms;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.common.service.internal.EntityStore;
 import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.LongIdSet;
@@ -32,6 +31,7 @@ import dev.ikm.tinkar.entity.StampRecord;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.State;
+import network.ike.foundation.ike.bindings.IkeConcept;
 import org.eclipse.collections.api.factory.primitive.LongSets;
 import org.eclipse.collections.api.set.primitive.MutableLongSet;
 import org.junit.jupiter.api.Tag;
@@ -354,7 +354,7 @@ class StarterSetProbeIT {
                                   ViewCalculator gb, MutableLongSet activeConcepts, LanguageCoordinateRecord usFullyQualified) {
             long descriptionPattern = usFullyQualified.descriptionPatternPreferenceNidList().get(0);
             long fullyQualifiedType = usFullyQualified.descriptionTypePreferenceNidList().get(0);
-            long preferred = KernelTerm.PREFERRED.nid();
+            long preferred = KernelConcept.PREFERRED.nid();
 
             Count withoutFullyQualifiedName = new Count();
             Count withoutRegularName = new Count();
@@ -605,7 +605,7 @@ class StarterSetProbeIT {
 
         private static StampRecord uncommittedStamp() {
             StampRecord stamp = StampRecord.make(UUID.randomUUID(), State.ACTIVE, Long.MAX_VALUE,
-                    KernelTerm.USER.publicId(), IkeTerms.DEVELOPMENT_MODULE.publicId(), KernelTerm.DEVELOPMENT_PATH.publicId());
+                    KernelConcept.USER.publicId(), IkeConcept.DEVELOPMENT_MODULE.publicId(), KernelConcept.DEVELOPMENT_PATH.publicId());
             EntityService.get().putEntity(stamp);
             return stamp;
         }

@@ -1,6 +1,6 @@
 package dev.ikm.ike.kb.validation;
 
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.common.service.PluggableService;
 import dev.ikm.tinkar.common.service.TrackingCallable;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -31,7 +31,7 @@ record Classification(long concepts, long parentEdges, long inEquivalenceSets, S
                 .findFirst().orElseThrow(() -> new IllegalStateException("No ReasonerService is provided"));
         out.setProperty(prefix + "reasoner", reasoner.getName());
         long start = System.currentTimeMillis();
-        reasoner.init(view, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN, KernelTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN);
+        reasoner.init(view, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN, KernelPattern.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN);
         reasoner.extractData(quiet());
         reasoner.loadData(quiet());
         out.setProperty(prefix + "load.millis", Long.toString(System.currentTimeMillis() - start));
