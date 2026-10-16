@@ -69,6 +69,14 @@ final class RecordMap {
     // Monotonic: a put counts before it enqueues, the writer counts after a batch lands.
     private final AtomicLong enqueued = new AtomicLong();
     private final AtomicLong flushed = new AtomicLong();
+    /**
+     * The references handed to the writer's queue only. A load phase's references go to a chunk
+     * the writer never sees, written by {@link #ingestEverything()} in the reading thread itself;
+     * counting them here made a scan wait for references other threads added to the chunk after
+     * that thread's drain, which nothing flushes until the chunk fills or the phase ends: ten
+     * minutes, then a failure, for every scan started while others were writing (classifying
+     * SOLOR + GUDID lost 4.7 million inferred axioms so, IKE-Network/ike-issues#1301).
+     */
     private final AtomicLong referencesEnqueued = new AtomicLong();
     private final AtomicLong referencesFlushed = new AtomicLong();
     /** Advanced after each batch that wrote references, before they leave the pending set: an iterator older than it may not see them. */
@@ -209,7 +217,6 @@ final class RecordMap {
     /** Records that a semantic references a component, in the writer's next batch. */
     void addReference(long referencedNid, long referencingNid) {
         pendingReferences.computeIfAbsent(referencedNid, key -> ConcurrentHashMap.newKeySet()).add(referencingNid);
-        referencesEnqueued.incrementAndGet();
         if (loadPhase) {
             long[] referenced = null;
             long[] referencing = null;
@@ -236,6 +243,7 @@ final class RecordMap {
             }
             return;
         }
+        referencesEnqueued.incrementAndGet();
         referenceQueue.add(new long[]{referencedNid, referencingNid});
     }
 
@@ -590,7 +598,6 @@ final class RecordMap {
                 }
             }
             referencesIngested.addAndGet(size);
-            referencesFlushed.addAndGet(size);
             flushLock.lock();
             try {
                 landed.signalAll();
