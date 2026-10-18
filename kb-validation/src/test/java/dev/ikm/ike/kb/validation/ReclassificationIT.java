@@ -15,7 +15,6 @@
  */
 package dev.ikm.ike.kb.validation;
 
-import dev.ikm.tinkar.common.util.time.MultipleEndpointTimer;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -26,7 +25,6 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeIsomorphism;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpression;
-import dev.ikm.tinkar.entity.graph.isomorphic.IsomorphicResults;
 import dev.ikm.tinkar.fixtures.ForkedJvm;
 import dev.ikm.tinkar.reasoner.service.ClassifierResults;
 import dev.ikm.tinkar.reasoner.service.ReasonerService;
@@ -45,7 +43,6 @@ import java.util.Properties;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -62,11 +59,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *     -Dreclassify.kb=<...>/solor-kb-1-SNAPSHOT-reasoned-sa.zip -Dreclassify.label=after
  * }</pre>
  *
- * <p>Before writing, it surveys every concept: the decision the writer made before (two isomorphic
- * analyses, {@link DiTreeEntity#makeCorrelatedTree} then {@link DiTreeEntity#equals}) beside the
- * exact comparison it makes now ({@link DiTreeIsomorphism}), each timed on one thread, for the
- * normal form against the latest inferred form (what the writer compares) and against the latest
- * stated form (a mix in which most pairs differ). After writing, every classified concept's latest
+ * <p>Before writing, it surveys every concept: the writer's comparison ({@link DiTreeIsomorphism}),
+ * timed on one thread, for the normal form against the latest inferred form (what the writer
+ * compares) and against the latest stated form (a mix in which most pairs differ). The decision
+ * the writer made before (two leaf-hash isomorphic analyses) was surveyed beside it until the
+ * leaf-hash analysis retired (IKE-Network/ike-issues#1310). After writing, every classified concept's latest
  * inferred form must be its normal form. The figures go to
  * {@code target/reclassify/<kb>-<label>.properties} and to the build report as
  * {@code reclassify.<kb>.*}; {@code -Dtinkar.jfr.dir} records the stage.
@@ -104,11 +101,6 @@ class ReclassificationIT {
         }
         Measurements.publish("reclassify." + name, result);
         System.out.println("Reclassification figures: " + report);
-
-        assertEquals("0", result.getProperty("survey.inferred.previous.different.now.same"),
-                "Pairs the decision before wrote and the exact comparison finds the same");
-        assertEquals("0", result.getProperty("survey.stated.previous.different.now.same"),
-                "Stated pairs the decision before found different and the exact comparison finds the same");
     }
 
     /** Unpacks the zip under the directory; returns the store, its one top-level directory. */
@@ -141,9 +133,6 @@ class ReclassificationIT {
 
     /** Classifies, surveys the decision, writes the results and checks them. */
     static class Reclassify extends StoreStage {
-
-        private final MultipleEndpointTimer<IsomorphicResults.EndPoints> timer =
-                new MultipleEndpointTimer<>(IsomorphicResults.EndPoints.class);
 
         @Override
         void work(Properties in, Properties out) throws Exception {
@@ -187,13 +176,12 @@ class ReclassificationIT {
 
         /**
          * For every n-th classified concept with a normal form and a latest form of the pattern,
-         * both decisions, each timed: the one before ({@code makeCorrelatedTree} then
-         * {@code equals}, "same" meaning nothing is written) and the exact comparison now.
+         * the writer's comparison, timed: "same" means nothing is written.
          */
         private void survey(ReasonerService reasoner, ViewCalculator view, long patternNid, int every,
                             Properties out, String prefix) {
-            long[] counts = new long[6]; // pairs, both same, both different, previous same now different, previous different now same, previous failed
-            long[] nanos = new long[2];  // previous, now
+            long[] counts = new long[3]; // pairs, same, different
+            long[] nanos = {0};
             long[] index = {0};
             reasoner.getReasonerConceptSet().forEach(nid -> {
                 if (index[0]++ % every != 0) {
@@ -211,41 +199,14 @@ class ReclassificationIT {
                 counts[0]++;
 
                 long start = System.nanoTime();
-                boolean now = DiTreeIsomorphism.isomorphic(form, latest.get());
-                nanos[1] += System.nanoTime() - start;
-
-                start = System.nanoTime();
-                boolean previous;
-                try {
-                    previous = latest.get().makeCorrelatedTree(form, nid, timer.startNew()).equals(latest.get());
-                } catch (RuntimeException failure) {
-                    nanos[0] += System.nanoTime() - start;
-                    counts[5]++;
-                    return;
-                }
+                boolean same = DiTreeIsomorphism.isomorphic(form, latest.get());
                 nanos[0] += System.nanoTime() - start;
-
-                if (previous && !now && counts[3] < 3) {
-                    out.setProperty(prefix + "example." + counts[3], "normal form " + form + "\nlatest " + latest.get());
-                }
-                if (previous && now) {
-                    counts[1]++;
-                } else if (!previous && !now) {
-                    counts[2]++;
-                } else if (previous) {
-                    counts[3]++;
-                } else {
-                    counts[4]++;
-                }
+                counts[same ? 1 : 2]++;
             });
             out.setProperty(prefix + "pairs", Long.toString(counts[0]));
-            out.setProperty(prefix + "both.same", Long.toString(counts[1]));
-            out.setProperty(prefix + "both.different", Long.toString(counts[2]));
-            out.setProperty(prefix + "previous.same.now.different", Long.toString(counts[3]));
-            out.setProperty(prefix + "previous.different.now.same", Long.toString(counts[4]));
-            out.setProperty(prefix + "previous.failed", Long.toString(counts[5]));
-            out.setProperty(prefix + "previous.millis", Long.toString(nanos[0] / 1_000_000));
-            out.setProperty(prefix + "now.millis", Long.toString(nanos[1] / 1_000_000));
+            out.setProperty(prefix + "same", Long.toString(counts[1]));
+            out.setProperty(prefix + "different", Long.toString(counts[2]));
+            out.setProperty(prefix + "now.millis", Long.toString(nanos[0] / 1_000_000));
         }
 
         private static Optional<DiTreeEntity> latestTree(ViewCalculator view, long conceptNid, long patternNid) {
