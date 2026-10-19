@@ -555,7 +555,11 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
     @Override
     public byte[] mergeReplacingVersion(long nid, long patternNid, long referencedComponentNid, long withdrawnStampNid,
                                         byte[] value, Object sourceObject, DataActivity activity) {
-        return merge(nid, value, sourceObject, activity, () -> recordMap.putReplacingVersion(nid, withdrawnStampNid, value));
+        return merge(nid, value, sourceObject, activity, () -> {
+            byte[] merged = recordMap.putReplacingVersion(nid, withdrawnStampNid, value);
+            identityMap.written(nid);
+            return merged;
+        });
     }
 
     @Override
@@ -565,6 +569,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
             // A record whose nid was minted in this load phase has nothing stored: it joins its
             // pattern's run, ingested in nid order, instead of the writer's queue.
             recordMap.put(nid, value, loadPhase && identityMap.fresh(nid));
+            identityMap.written(nid);
             byte[] merged = recordMap.get(nid);
             if (merged == null) {
                 throw new IllegalStateException("Record " + nid + " read as absent right after its put: " + recordMap.whereIs(nid));

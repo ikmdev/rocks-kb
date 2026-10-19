@@ -85,6 +85,24 @@ class Rocks64StoreTest {
     }
 
     @Test
+    void aNidMintedButNotYetWrittenNamesItsUuids_fromTheMint() {
+        // Vertex identity derivation asks this of every component a definition references, most
+        // minted before they are written in a parallel load: answered from what the mint recorded,
+        // then from the record once it is written, never by a scan of the identity column.
+        UUID uuid = UUID.randomUUID();
+        Rocks64Store store = Rocks64Store.open();
+        try {
+            long concept = store.getEntityKey(EntityBinding.Concept.pattern(), PublicIds.of(uuid)).nid();
+            assertEquals(List.of(uuid), store.publicIdForNid(concept).asUuidList(), "minted, unwritten");
+            store.merge(concept, NOT_A_SEMANTIC, NOT_A_SEMANTIC, Records.concept(concept, new UUID[]{uuid}, Nid.compose64(3, 1)),
+                    null, DataActivity.SYNCHRONIZABLE_EDIT);
+            assertEquals(List.of(uuid), store.publicIdForNid(concept).asUuidList(), "written");
+        } finally {
+            store.close();
+        }
+    }
+
+    @Test
     void enumerationsFollowTheCountersAndTheRecords() {
         Rocks64Store store = Rocks64Store.open();
         try {

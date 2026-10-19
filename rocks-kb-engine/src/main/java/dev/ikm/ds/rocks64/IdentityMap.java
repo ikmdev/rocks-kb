@@ -99,6 +99,14 @@ final class IdentityMap {
     private volatile boolean loadPhase;
     /** The nids minted in the current load phase, by pattern and element: nothing is stored for them yet. */
     private final ConcurrentHashMap<Integer, BitSet> fresh = new ConcurrentHashMap<>();
+    /**
+     * The UUIDs of nids minted here whose record has not been written: what {@link #publicIdOf}
+     * answers from until the record arrives, when the store drops the entry ({@link #written}).
+     * Vertex identity derivation asks for every component a definition references, and in a
+     * parallel load most are minted before they are written; left to the scan, each would have
+     * cost a pass over the tables and the column (IKE-Network/ike-issues#1310).
+     */
+    private final ConcurrentHashMap<Long, UUID[]> unwritten = new ConcurrentHashMap<>();
     /** Whether the column holds nothing but the fixed bindings, which memory answers: true for a store created here until a write. */
     private volatile boolean columnHoldsOnlyFixed;
     private final LockTable locks = new LockTable();
@@ -177,11 +185,16 @@ final class IdentityMap {
 
     /** The nid of a UUID the store knows, from memory first and then the column. */
     /**
-     * The UUIDs minted for a nid: the tables held in memory, then the column, scanned whole.
-     * Correctness over speed, for a component referenced but never written, which has no
-     * record to read its UUIDs from. Empty when the nid was never minted here.
+     * The UUIDs minted for a nid: what its mint recorded while its record is unwritten, else the
+     * tables held in memory, then the column, scanned whole. The scan is correctness over speed,
+     * for a nid minted before this store recorded mints, or one whose record was erased. Empty
+     * when the nid was never minted here.
      */
     Optional<PublicId> publicIdOf(long nid) {
+        UUID[] minted = unwritten.get(nid);
+        if (minted != null) {
+            return Optional.of(PublicIds.of(minted));
+        }
         List<UUID> uuids = new ArrayList<>();
         fixed.forEach((uuid, bound) -> {
             if (bound == nid) {
@@ -212,6 +225,11 @@ final class IdentityMap {
     Optional<Long> nid(UUID uuid) {
         long nid = lookup(uuid);
         return nid == 0 ? Optional.empty() : Optional.of(nid);
+    }
+
+    /** A record is written for the nid: its UUIDs are in the record now. */
+    void written(long nid) {
+        unwritten.remove(nid);
     }
 
     boolean knows(UUID uuid) {
@@ -337,6 +355,7 @@ final class IdentityMap {
             if (known == null) {
                 nid = allocator.getAsLong();
                 allocated = true;
+                unwritten.put(nid, uuids.clone());
                 if (loadPhase) {
                     markFresh(nid);
                 }
