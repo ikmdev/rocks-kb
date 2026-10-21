@@ -44,6 +44,24 @@ public class EntityReferencingSemanticMap
         put(compoundKey, emptyValue);
     }
 
+    /** Removes one semantic's citation of the component it references (IKE-Network/ike-issues#1313). */
+    public void remove(EntityKey entityKey, EntityKey referencingEntityKey) {
+        try {
+            delete(KeyUtil.entityReferencingSemanticKey(entityKey, referencingEntityKey));
+        } catch (org.rocksdb.RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Removes every citation of a component, when the component itself is erased. */
+    public void removeCitationsOf(long rocksKey) {
+        try {
+            deleteRange(KeyUtil.longToByteArray(rocksKey), KeyUtil.longToByteArray(rocksKey + 1));
+        } catch (org.rocksdb.RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public ImmutableList<EntityKey> getReferencingEntityKeys(EntityKey entityKey) {
         return getReferencingEntityKeys(entityKey.rocksKey());
     }

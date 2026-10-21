@@ -109,6 +109,15 @@ public abstract class RocksDbMap<DB extends RocksDB> {
         advanceWriteEpoch();
     }
 
+    /**
+     * Deletes every key from {@code from}, inclusive, to {@code toExclusive}: all the rows an
+     * entity is stored as lie under its key (IKE-Network/ike-issues#1313).
+     */
+    public final void deleteRange(byte[] from, byte[] toExclusive) throws RocksDBException {
+        db.deleteRange(mapHandle, from, toExclusive);
+        advanceWriteEpoch();
+    }
+
     public final boolean keyExists(byte[] key) {
         return db.keyExists(mapHandle, key);
     }

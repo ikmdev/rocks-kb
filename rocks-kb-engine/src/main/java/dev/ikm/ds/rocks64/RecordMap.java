@@ -331,6 +331,36 @@ final class RecordMap {
         return merged;
     }
 
+    /**
+     * Erases an entity's record, the reference it made to the component it references, and every
+     * reference to it (IKE-Network/ike-issues#1313). Call it once {@link #awaitPendingWrites()} has
+     * returned, so nothing still queued can bring the record back.
+     *
+     * @param nid           the entity's nid
+     * @param referencedNid the component it references, a semantic's; {@code 0} for any other entity
+     */
+    void erase(long nid, long referencedNid) {
+        failIfWriterDied();
+        pending.remove(nid);
+        try {
+            db.delete(entities, Keys.of(nid));
+            if (referencedNid != 0) {
+                Set<Long> pendingTo = pendingReferences.get(referencedNid);
+                if (pendingTo != null) {
+                    pendingTo.remove(nid);
+                }
+                db.delete(references, Keys.reference(referencedNid, nid));
+            }
+            pendingReferences.remove(nid);
+            db.deleteRange(references, Keys.of(nid), Keys.of(nid + 1));
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+        // A pooled reference iterator is a view as of its epoch: without a new epoch, a reader
+        // could reuse one from before the delete and still find the erased references.
+        referenceEpoch.incrementAndGet();
+    }
+
     void awaitPendingWrites() {
         if (loadPhase || !sealed.isEmpty() || !runs.isEmpty()) {
             ingestEverything();

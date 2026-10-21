@@ -84,7 +84,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * written behind by one thread as unions ({@link RecordMap}), and scans read one snapshot in
  * byte-sized ranges ({@link Scanner}).
  */
-public final class Rocks64Store implements RocksEngine, NidGenerator {
+public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.tinkar.common.service.ScopeErasure {
 
     private static final Logger LOG = LoggerFactory.getLogger(Rocks64Store.class);
 
@@ -776,6 +776,47 @@ public final class Rocks64Store implements RocksEngine, NidGenerator {
             }
         });
         scanner.parallel(chunks);
+    }
+
+    /**
+     * Erases a closed set of components (IKE-Network/ike-issues#1313): once every queued record
+     * and reference has landed and the held identities are in their column, each one's record,
+     * the reference it made and every reference to it, its UUIDs, and its search text. The
+     * pattern enumerations count through element sequences, so an erased element leaves a gap
+     * there, as a nid minted and never written does; the entity layer skips a nid with no entity.
+     */
+    @Override
+    public void eraseComponents(long[] nids) {
+        checkOpen();
+        recordMap.awaitPendingWrites();
+        for (long nid : nids) {
+            byte[] record = recordMap.get(nid);
+            if (record == null) {
+                continue;
+            }
+            Entity<?> entity = dev.ikm.tinkar.entity.EntityRecordFactory.make(record);
+            long referenced = entity instanceof SemanticEntity<?> semantic ? semantic.referencedComponentNid() : 0;
+            recordMap.erase(nid, referenced);
+            identityMap.forget(nid, entity.publicId().asUuidArray());
+            if (referenced != 0) {
+                try {
+                    getSearchService().remove(nid);
+                } catch (RuntimeException noSearch) {
+                    LOG.debug("No search service to remove {} from", nid);
+                }
+            }
+            writeSequence.increment();
+        }
+    }
+
+    /** Removes the components' records from what each of this store's change-set writers keeps. */
+    @Override
+    public ChangeSetRemoval removeFromChangeSets(java.util.Set<UUID> components) {
+        ChangeSetRemoval removal = ChangeSetRemoval.NONE;
+        for (ChangeSetWriterService writer : changeSetWriters.orElseSet(this::loadChangeSetWriters)) {
+            removal = removal.plus(writer.removeComponents(components));
+        }
+        return removal;
     }
 
     /** The references pending are read before the stored ones: the writer moves a reference from the one to the other. */

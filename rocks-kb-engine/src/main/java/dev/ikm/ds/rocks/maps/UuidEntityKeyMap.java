@@ -387,6 +387,16 @@ public class UuidEntityKeyMap
         }
     }
 
+    /** Removes a UUID's mapping, held in memory and stored, when its entity is erased (IKE-Network/ike-issues#1313). */
+    public void remove(UUID uuid) {
+        uuidEntityKeyMap.remove(uuid);
+        try {
+            delete(KeyUtil.uuidToByteArray(uuid));
+        } catch (org.rocksdb.RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public Optional<EntityKey> getEntityKey(UUID uuid) {
         if (uuidEntityKeyMap.containsKey(uuid)) {
             return Optional.of(uuidEntityKeyMap.get(uuid));

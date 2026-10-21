@@ -372,6 +372,22 @@ public class EntityMap
         }
     }
 
+    /**
+     * Erases the entity under {@code rocksKey} (IKE-Network/ike-issues#1313): its chronology and
+     * every version lie under keys that begin with the entity's own, so once every write already
+     * queued has landed, the range of them is deleted. A write that arrives after is not covered.
+     *
+     * @param rocksKey the entity's rocks key
+     */
+    public void erase(long rocksKey) {
+        awaitPendingWrites();
+        try {
+            deleteRange(KeyUtil.longToByteArray(rocksKey), KeyUtil.longToByteArray(rocksKey + 1));
+        } catch (RocksDBException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public void put(EntityKey entityKey, byte[] value) {
         if (entityKey instanceof EntityKey.EntityVersionKey) {
             throw new IllegalArgumentException("EntityVersionKey should not be used for put, only the EntityKey.");

@@ -222,6 +222,29 @@ final class IdentityMap {
         return uuids.isEmpty() ? Optional.empty() : Optional.of(PublicIds.of(uuids.toArray(new UUID[0])));
     }
 
+    /**
+     * Forgets an erased entity's UUIDs (IKE-Network/ike-issues#1313): the entries held in memory
+     * are written to the column first, so deleting them from the column forgets them everywhere.
+     * The fixed bindings are never erased.
+     *
+     * @param nid   the entity's nid
+     * @param uuids its UUIDs
+     */
+    void forget(long nid, UUID[] uuids) {
+        flush();
+        unwritten.remove(nid);
+        for (UUID uuid : uuids) {
+            if (fixed.containsKey(uuid)) {
+                continue;
+            }
+            try {
+                db.delete(handle, Keys.of(uuid));
+            } catch (RocksDBException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
     Optional<Long> nid(UUID uuid) {
         long nid = lookup(uuid);
         return nid == 0 ? Optional.empty() : Optional.of(nid);

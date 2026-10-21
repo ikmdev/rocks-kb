@@ -60,7 +60,7 @@ import static dev.ikm.tinkar.common.service.PrimitiveData.SCOPED_PATTERN_PUBLICI
  * where new work goes, and the controllers below choose between the two by the store's format
  * (design {@code design-2026-10-07-64-bit-rocks-store}, "One engine or two").
  */
-public class RocksProvider implements RocksEngine, NidGenerator {
+public class RocksProvider implements RocksEngine, NidGenerator, dev.ikm.tinkar.common.service.ScopeErasure {
     private static final Logger LOG = LoggerFactory.getLogger(RocksProvider.class);
     public static final long defaultCacheSize = 256L * 1024 * 1024; // 256 MB cache
     public static final int defaultBloomFilterBitsPerKey = 10;
@@ -947,6 +947,51 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         BoundedForks.forkAll(subSpliterators, BoundedForks.SCAN_PARALLELISM,
                 subSpliterator -> subSpliterator.forEachRemaining((LongConsumer) rocksKey ->
                         procedure.accept(NidLayout.active().nidForRocksKey(rocksKey))));
+    }
+
+    /**
+     * Erases a closed set of components (IKE-Network/ike-issues#1313): each one's rows, the
+     * citation it made of its referenced component and any citing it, its public ids, and its
+     * search text. The pattern enumerations count through element sequences, so an erased
+     * element leaves a gap there, as a nid minted and never written does; the entity layer skips
+     * a nid with no entity.
+     */
+    @Override
+    public void eraseComponents(long[] nids) {
+        checkOpen();
+        for (long nid : nids) {
+            long rocksKey = NidLayout.active().rocksKeyForNid(nid);
+            byte[] bytes = this.entityMap.get(rocksKey);
+            if (bytes == null) {
+                continue;
+            }
+            Entity<?> entity = dev.ikm.tinkar.entity.EntityRecordFactory.make(bytes);
+            if (entity instanceof SemanticEntity<?> semantic) {
+                this.entityReferencingSemanticMap.remove(EntityKey.ofNid(semantic.referencedComponentNid()), EntityKey.ofNid(nid));
+                try {
+                    getSearchService().remove(nid);
+                } catch (RuntimeException noSearch) {
+                    LOG.debug("No search service to remove {} from", nid);
+                }
+            }
+            this.entityReferencingSemanticMap.removeCitationsOf(rocksKey);
+            for (UUID uuid : entity.publicId().asUuidArray()) {
+                this.uuidEntityKeyMap.remove(uuid);
+            }
+            this.entityMap.erase(rocksKey);
+            this.writeSequence.increment();
+        }
+    }
+
+    /** Removes the components' records from what each of this store's change-set writers keeps. */
+    @Override
+    public ChangeSetRemoval removeFromChangeSets(java.util.Set<UUID> components) {
+        ChangeSetRemoval removal = ChangeSetRemoval.NONE;
+        ImmutableList<ChangeSetWriterService> writers = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
+        for (ChangeSetWriterService writer : writers) {
+            removal = removal.plus(writer.removeComponents(components));
+        }
+        return removal;
     }
 
     @Override
