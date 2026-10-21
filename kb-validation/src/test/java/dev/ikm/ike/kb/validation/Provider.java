@@ -16,7 +16,11 @@ enum Provider {
     ROCKS_LEGACY("Open Rocks KB", true, "8-bit"),
     SPINED_ARRAY("Open SpinedArrayStore", true, null),
     /** The spined array in its ephemeral mode: held in memory only, a store lifetime ends with its JVM. */
-    EPHEMERAL("Load Ephemeral Store", false, null);
+    EPHEMERAL("Load Ephemeral Store", false, null),
+    /** The 64-bit spined array: per-pattern spines under 64-bit nids (IKE-Network/ike-issues#1313). */
+    SPINED_ARRAY_64("Open 64-bit SpinedArrayStore", true, null),
+    /** The 64-bit spined array held in memory only. */
+    MEMORY_ONLY_64("Load Memory-Only 64-bit Store", false, null);
 
     final String controllerName;
     /** Whether a store outlives the JVM that wrote it, so it can be closed and reopened. */
