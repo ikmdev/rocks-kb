@@ -73,14 +73,14 @@ class FormatVersion3IT {
 
     private static final String TEST = "format-v3";
 
-    /** A version 2 export of the starter set, written once from the ephemeral store, for the store-independent tests. */
+    /** A version 2 export of the starter set, written once from the memory-only store, for the store-independent tests. */
     private static File export;
 
     @BeforeAll
     static void exportTheStarterSet() {
-        Path work = ChangeSets.work(TEST, Provider.EPHEMERAL, "shared-export");
+        Path work = ChangeSets.work(TEST, Provider.MEMORY_ONLY_64, "shared-export");
         export = work.resolve("export-pb.zip").toFile();
-        loadAndExport(Provider.EPHEMERAL, work, export, resource(FormatVersion1ReadIT.STARTER_SET));
+        loadAndExport(Provider.MEMORY_ONLY_64, work, export, resource(FormatVersion1ReadIT.STARTER_SET));
     }
 
     @ParameterizedTest
@@ -105,11 +105,11 @@ class FormatVersion3IT {
 
     @Test
     void aNewerFormatVersionIsRefused() throws IOException {
-        Path work = ChangeSets.work(TEST, Provider.EPHEMERAL, "newer-version");
+        Path work = ChangeSets.work(TEST, Provider.MEMORY_ONLY_64, "newer-version");
         File newer = withManifestAttribute(export, work.resolve("version-4-pb.zip").toFile(), FORMAT_VERSION, "4");
 
         AssertionError refused = assertThrows(AssertionError.class,
-                () -> load(TEST, Provider.EPHEMERAL, "newer-version-store", newer),
+                () -> load(TEST, Provider.MEMORY_ONLY_64, "newer-version-store", newer),
                 "A changeset of format version 4 is loaded by a reader that knows version 3 at most");
         assertTrue(refused.getMessage().contains(FORMAT_VERSION) && refused.getMessage().contains("4"),
                 "The refusal names the format version it does not know:\n" + refused.getMessage());

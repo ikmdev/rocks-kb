@@ -98,7 +98,7 @@ class VertexIdentitySweepIT {
         SnomedRoundTripIT.deleteTree(work);
         Files.createDirectories(work);
         Properties in = new Properties();
-        in.setProperty(StoreStage.PROVIDER, Provider.EPHEMERAL.name());
+        in.setProperty(StoreStage.PROVIDER, Provider.MEMORY_ONLY_64.name());
         in.setProperty(StoreStage.STORE, work.resolve("store").toString());
         in.setProperty(KB_FILE, StarterSetRoundTripIT.starterSet().toString());
         Properties result = ForkedJvm.run(LoadAndSweep.class, in, Duration.ofMinutes(20));

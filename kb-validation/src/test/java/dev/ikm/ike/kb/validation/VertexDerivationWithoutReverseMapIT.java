@@ -82,11 +82,11 @@ class VertexDerivationWithoutReverseMapIT {
     @Test
     void valuesCarryingPublicIdsDeriveTheSameUuidsWithoutAReverseMap() {
         Properties legacy = run(Provider.ROCKS_LEGACY);
-        Properties reverseMap = run(Provider.EPHEMERAL);
+        Properties reverseMap = run(Provider.MEMORY_ONLY_64);
 
         assertAll(
                 () -> assertNull(legacy.getProperty(DERIVED_FAILURE), "the write on the legacy layout"),
-                () -> assertNull(reverseMap.getProperty(DERIVED_FAILURE), "the write on the ephemeral store"),
+                () -> assertNull(reverseMap.getProperty(DERIVED_FAILURE), "the write on the memory-only store"),
                 () -> assertNotNull(legacy.getProperty(DERIVED), "the legacy layout's derived UUIDs"),
                 () -> assertEquals(reverseMap.getProperty(DERIVED), legacy.getProperty(DERIVED),
                         "vertex UUIDs derived on the legacy layout, against those on a store with a reverse map"),
