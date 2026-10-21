@@ -25,6 +25,7 @@ import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.common.validation.ValidationRecord;
 import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
+import dev.ikm.tinkar.entity.scope.DataUseIndex;
 import dev.ikm.tinkar.common.service.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.PatternFacade;
@@ -75,6 +76,8 @@ public class RocksProvider implements RocksEngine, NidGenerator, dev.ikm.tinkar.
     final SetOnce<ImmutableList<ChangeSetWriterService>> changeSetWriterServices = new SetOnce<>();
     final SetOnce<SearchService> searchService = new SetOnce<>();
     private volatile boolean loadPhase = false;
+    /** What uses the store's instance and ephemeral data, for scope deletes (IKE-Network/ike-issues#1313). */
+    private DataUseIndex dataUseIndex;
 
     private final RocksDB db;
     private final EntityMap entityMap;
@@ -255,10 +258,13 @@ public class RocksProvider implements RocksEngine, NidGenerator, dev.ikm.tinkar.
                     
             try {
                 db = RocksDB.open(dbOptions, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
+                // The sequence as opened, before the maps write anything: what the index's file was written against.
+                long openedAt = db.getLatestSequenceNumber();
                 entityReferencingSemanticMap = new EntityReferencingSemanticMap(db, getHandle(ColumnFamily.ENTITY_REFERENCING_SEMANTIC_MAP));
                 sequenceMap = new SequenceMap(db, getHandle(ColumnFamily.DEFAULT));
                 uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
                 entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyMap);
+                dataUseIndex = DataUseIndex.open(configuredRoot, openedAt, !kbExists, this::forEachParallel);
             } catch (RocksDBException e) {
                 // Close ColumnFamilyOptions/Table configs if open failed
                 safeCloseColumnFamilyDescriptors();
@@ -398,6 +404,15 @@ public class RocksProvider implements RocksEngine, NidGenerator, dev.ikm.tinkar.
 
                 // 3. Clear the column handles list (already closed by maps above)
                 columnHandles.clear();
+
+                // The data-use index, against the sequence of the store's last write.
+                try {
+                    if (this.db != null && this.dataUseIndex != null) {
+                        this.dataUseIndex.save(this.db.getLatestSequenceNumber());
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error saving the data-use index", e);
+                }
 
                 // 4. Close DB after all column family handles are closed
                 try {
@@ -767,6 +782,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         if (mergedBytes == null) {
             throw new IllegalStateException("Merged bytes should not be null");
         }
+        this.dataUseIndex.merged(sourceObject);
 
         this.writeSequence.increment();
 
@@ -824,6 +840,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void setLoadPhase(boolean loadPhase) {
         this.loadPhase = loadPhase;
+        this.dataUseIndex.loadPhase(loadPhase);
     }
 
     @Override
@@ -966,6 +983,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                 continue;
             }
             Entity<?> entity = dev.ikm.tinkar.entity.EntityRecordFactory.make(bytes);
+            this.dataUseIndex.erased(entity);
             if (entity instanceof SemanticEntity<?> semantic) {
                 this.entityReferencingSemanticMap.remove(EntityKey.ofNid(semantic.referencedComponentNid()), EntityKey.ofNid(nid));
                 try {
@@ -981,6 +999,11 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             this.entityMap.erase(rocksKey);
             this.writeSequence.increment();
         }
+    }
+
+    @Override
+    public java.util.Optional<DataUse> dataUse() {
+        return java.util.Optional.of(dataUseIndex);
     }
 
     /** Removes the components' records from what each of this store's change-set writers keeps. */

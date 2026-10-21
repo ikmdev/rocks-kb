@@ -21,6 +21,7 @@ import dev.ikm.tinkar.entity.ChangeSetWriterService;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.scope.DataUseIndex;
 import org.eclipse.collections.api.block.procedure.primitive.LongProcedure;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -155,6 +156,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     }
     private final SetOnce<SearchService> searchService = new SetOnce<>();
     private volatile boolean loadPhase = false;
+    /** What uses the store's instance and ephemeral data, for scope deletes (IKE-Network/ike-issues#1313). */
+    private final DataUseIndex dataUseIndex;
 
     /**
      * Opens the store at the configured data root ({@link ServiceKeys#DATA_STORE_ROOT}), creating
@@ -232,6 +235,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                 throw new RuntimeException("Could not open " + rocks, e);
             }
             this.db = opened;
+            // The sequence as opened, before anything is written: what the index's file was written against.
+            long openedAt = opened.getLatestSequenceNumber();
             try {
                 NidLayout.activate(NidLayout.SIXTY_FOUR_BIT);
                 this.counters = Counters.load(db, handle(Family.DEFAULT), handle(Family.ENTITIES));
@@ -254,6 +259,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                 this.recordMap = new RecordMap(db, handle(Family.ENTITIES), handle(Family.REFERENCES), this::isCanceledStampNid,
                         new RecordMap.Ingest(entityFileOptions, referenceFileOptions, new File(root, "rocks-ingest")));
                 this.scanner = new Scanner(db, handle(Family.ENTITIES), counters);
+                this.dataUseIndex = DataUseIndex.open(root, openedAt, creating, this::forEachParallel);
             } catch (RocksDBException | RuntimeException e) {
                 closeDatabaseQuietly();
                 throw e instanceof RuntimeException runtime ? runtime : new RuntimeException(e);
@@ -378,6 +384,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                 identityMap.flush();
                 recordMap.close();
                 flushToDisk();
+                dataUseIndex.save(db.getLatestSequenceNumber());
             } catch (RuntimeException e) {
                 LOG.error("Error while saving {} during close", name, e);
             }
@@ -587,6 +594,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                     + (value == null || value.length == 0 ? "no record" : "a format " + value[0] + " record"));
         }
         byte[] merged = write.get();
+        dataUseIndex.merged(sourceObject);
         // The reference after the record: a reader following references from the referenced
         // component finds a record at every nid it is given.
         if (sourceObject instanceof SemanticEntity semantic) {
@@ -795,6 +803,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                 continue;
             }
             Entity<?> entity = dev.ikm.tinkar.entity.EntityRecordFactory.make(record);
+            dataUseIndex.erased(entity);
             long referenced = entity instanceof SemanticEntity<?> semantic ? semantic.referencedComponentNid() : 0;
             recordMap.erase(nid, referenced);
             identityMap.forget(nid, entity.publicId().asUuidArray());
@@ -807,6 +816,11 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
             }
             writeSequence.increment();
         }
+    }
+
+    @Override
+    public java.util.Optional<dev.ikm.tinkar.common.service.DataUse> dataUse() {
+        return java.util.Optional.of(dataUseIndex);
     }
 
     /** Removes the components' records from what each of this store's change-set writers keeps. */
@@ -922,6 +936,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
             this.loadPhase = true;
             identityMap.setLoadPhase(true);
             recordMap.setLoadPhase(true);
+            dataUseIndex.loadPhase(true);
             return;
         }
         // Ending: the runs and the chunk first, while the fresh nids are still known; then the identities.
@@ -929,6 +944,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         recordMap.setLoadPhase(false);
         this.loadPhase = false;
         identityMap.setLoadPhase(false);
+        // Last, once the records and identities read as stored.
+        dataUseIndex.loadPhase(false);
         if (wasLoading) {
             LOG.info("Load phase ended: {} record(s) and {} reference(s) ingested as SST files",
                     String.format("%,d", recordMap.recordsIngested()), String.format("%,d", recordMap.referencesIngested()));

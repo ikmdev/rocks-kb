@@ -43,6 +43,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * deleted. The deleted document's components, public ids, citations and search text are gone,
  * its own STAMP is collected and the shared one kept, and the other document is whole; on a
  * persistent store all of it holds after the store is closed and opened again.
+ *
+ * <p>On a store that keeps a data-use index, the deletes run with the read of every component
+ * disabled ({@value ScopeOperations#FULL_PASS_PROPERTY}{@code =false}), so the index alone
+ * answers them; a store without one reads every component, to the same outcome: a third scope listing a line of the document in a field refuses its delete
+ * until that scope is deleted first, and the shared STAMP is kept. A persistent store does the
+ * same for a second linked pair after it is opened again, from the index it read back.
  */
 @Tag("starter-set")
 class ScopeDeleteIT {
@@ -63,10 +69,29 @@ class ScopeDeleteIT {
         assertEquals("EPHEMERAL", written.getProperty("kind.comment"), provider + ": a comment in the shared comment pattern");
         assertEquals("1", written.getProperty("collected"), provider + ": A's own STAMP is collected");
         assertEquals("1", written.getProperty("kept"), provider + ": the STAMP A shares with B is kept");
+        assertIndexed(provider, "as the store is written", written, "a");
         assertObserved(provider, "after the delete", written);
         if (provider.persistent) {
-            assertObserved(provider, "after the store is opened again", ForkedJvm.run(Reopen.class, written, Duration.ofMinutes(10)));
+            Properties reopened = ForkedJvm.run(Reopen.class, written, Duration.ofMinutes(10));
+            assertObserved(provider, "after the store is opened again", reopened);
+            assertIndexed(provider, "after the store is opened again", reopened, "c");
+            assertEquals("1", reopened.getProperty("c.collected"), provider + ": C's own STAMP is collected");
+            assertEquals("1", reopened.getProperty("c.kept"), provider + ": the STAMP C shares with D is kept");
+            assertEquals("true", reopened.getProperty("c.has.shared"), provider + ": the shared STAMP stays");
+            assertEquals("true", reopened.getProperty("c.has.other"), provider + ": D is whole");
+            if (Boolean.parseBoolean(reopened.getProperty("keepsIndex"))) {
+                assertEquals("0", reopened.getProperty("rebuilds"), provider + ": the index was read back, not rebuilt");
+            }
         }
+    }
+
+    private static void assertIndexed(Provider provider, String when, Properties out, String doc) {
+        assertEquals(true, out.getProperty(doc + ".refused", "").contains("lead into it"),
+                provider + " " + when + ": a field reference into " + doc + " refuses its delete: " + out.getProperty(doc + ".refused"));
+        String keeps = out.getProperty("keepsIndex");
+        assertEquals(keeps, out.getProperty(doc + ".link.indexed"), provider + " " + when + ": the index answered the link's delete where kept");
+        assertEquals(keeps, out.getProperty(doc + ".indexed"), provider + " " + when + ": the index answered " + doc + "'s delete where kept");
+        assertEquals("false", out.getProperty(doc + ".has.root"), provider + " " + when + ": " + doc + " is gone");
     }
 
     private static void assertObserved(Provider provider, String when, Properties out) {
@@ -87,6 +112,7 @@ class ScopeDeleteIT {
 
         @Override
         void work(Properties in, Properties out) throws Exception {
+            fullPassOnlyWithoutAnIndex(out);
             new LoadEntitiesFromProtobufFile(new File(in.getProperty(StarterSetProbeIT.KB_FILE))).compute();
             ConceptFacade documents = EntityProxy.Concept.make(PublicIds.newRandom());
             ConceptFacade term = EntityProxy.Concept.make(PublicIds.newRandom());
@@ -132,18 +158,62 @@ class ScopeDeleteIT {
             // the first from its pattern (read from the nid where the layout carries it), the second from its own birth.
             out.setProperty("kind.line", dev.ikm.tinkar.entity.boundary.EntityBoundaries.kindOf(PrimitiveData.nid(a[2])).name());
             out.setProperty("kind.comment", dev.ikm.tinkar.entity.boundary.EntityBoundaries.kindOf(PrimitiveData.nid(a[4])).name());
-            ScopeOperations.Deleted deleted = ScopeOperations.delete(Scope.of(PrimitiveData.nid(a[0])));
+            PublicId linkA = link(documents, a[2]);
+            out.setProperty("a.pattern", a[0].asUuidArray()[0].toString());
+            out.setProperty("a.link", linkA.asUuidArray()[0].toString());
+            ScopeOperations.Deleted deleted = deleteLinked("a", out, out);
             out.setProperty("collected", Integer.toString(deleted.stamps()));
             out.setProperty("kept", Integer.toString(deleted.stampsKept()));
             observe(out, out);
+
+            // A second pair, linked the same way, for the stage that opens the store again.
+            PublicId[] c = new PublicId[6];
+            PublicId[] d = new PublicId[6];
+            try (StampedWriter writer = writer(documents, "scope delete documents C and D")) {
+                document(writer, c, term, "zebracornRc");
+                document(writer, d, term, "zebracornRd");
+                writer.commit();
+            }
+            try (StampedWriter writer = writer(documents, "scope delete revision of C")) {
+                writer.semantic(c[4], KernelPattern.COMMENT_PATTERN.publicId(), c[2], "zebracornRc revised");
+                writer.commit();
+            }
+            out.setProperty("c.pattern", c[0].asUuidArray()[0].toString());
+            out.setProperty("c.root", c[1].asUuidArray()[0].toString());
+            out.setProperty("c.other", d[1].asUuidArray()[0].toString());
+            out.setProperty("c.link", link(documents, c[2]).asUuidArray()[0].toString());
+            long sharedC = 0;
+            for (Object o : EntityHandle.get(PrimitiveData.nid(c[1])).expectEntity().versions()) {
+                sharedC = ((EntityVersion) o).stampNid();
+            }
+            out.setProperty("c.shared", PrimitiveData.publicId(sharedC).asUuidArray()[0].toString());
         }
 
-        private StampedWriter writer(ConceptFacade module, String name) {
+        /**
+         * A scope whose element lists another document's line in a component-list field: a
+         * reference into that document the referencing index does not hold.
+         */
+        PublicId link(ConceptFacade module, PublicId line) {
+            PublicId pattern = PublicIds.newRandom();
+            PublicId root = PublicIds.newRandom();
+            try (StampedWriter writer = writer(module, "scope delete link")) {
+                writer.pattern(pattern, KernelConcept.STRING, KernelConcept.STRING,
+                        StampedWriter.field(KernelConcept.STRING, KernelConcept.STRING, KernelConcept.COMPONENT_ID_LIST_FIELD));
+                EntityService.get().nidForSemantic(pattern, root);
+                writer.semantic(root, pattern, pattern, dev.ikm.tinkar.common.id.LongIds.list.empty());
+                writer.semantic(PublicIds.newRandom(), pattern, root,
+                        dev.ikm.tinkar.common.id.LongIds.list.of(EntityService.get().nidForPublicId(line)));
+                writer.commit();
+            }
+            return pattern;
+        }
+
+        StampedWriter writer(ConceptFacade module, String name) {
             return StampedWriter.open(name, State.ACTIVE, ++time, KernelConcept.USER, module, KernelConcept.DEVELOPMENT_PATH);
         }
 
         /** A document: its pattern, a root, a line, a line citing the term, and a comment on the line in the shared comment pattern. */
-        private static void document(StampedWriter writer, PublicId[] ids, ConceptFacade term, String text) {
+        static void document(StampedWriter writer, PublicId[] ids, ConceptFacade term, String text) {
             for (int i = 0; i < 5; i++) {
                 ids[i] = PublicIds.newRandom();
             }
@@ -157,7 +227,7 @@ class ScopeDeleteIT {
             writer.semantic(ids[4], KernelPattern.COMMENT_PATTERN.publicId(), ids[2], text + " annotation");
         }
 
-        private static void module(StampedWriter writer, ConceptFacade module, ConceptFacade parent) {
+        static void module(StampedWriter writer, ConceptFacade module, ConceptFacade parent) {
             writer.concept(module.publicId());
             LogicalExpressionBuilder leb = new LogicalExpressionBuilder();
             leb.NecessarySet(leb.And(new LogicalAxiom.Atom[] {leb.ConceptAxiom(parent)}));
@@ -170,8 +240,44 @@ class ScopeDeleteIT {
     static class Reopen extends StoreStage {
         @Override
         void work(Properties in, Properties out) throws Exception {
+            fullPassOnlyWithoutAnIndex(out);
             observe(in, out);
+            ScopeOperations.Deleted deleted = deleteLinked("c", in, out);
+            out.setProperty("c.collected", Integer.toString(deleted.stamps()));
+            out.setProperty("c.kept", Integer.toString(deleted.stampsKept()));
+            out.setProperty("c.has.shared", Boolean.toString(PrimitiveData.get().hasPublicId(id(in, "c.shared"))));
+            out.setProperty("c.has.other", Boolean.toString(PrimitiveData.get().hasPublicId(id(in, "c.other"))));
+            if (PrimitiveData.get() instanceof dev.ikm.tinkar.common.service.ScopeErasure erasure) {
+                erasure.dataUse().ifPresent(index ->
+                        out.setProperty("rebuilds", Long.toString(((dev.ikm.tinkar.entity.scope.DataUseIndex) index).rebuilds())));
+            }
         }
+    }
+
+    /** Leaves the full pass disabled only on a store that keeps a data-use index, and says which. */
+    static void fullPassOnlyWithoutAnIndex(Properties out) {
+        boolean keeps = PrimitiveData.get() instanceof dev.ikm.tinkar.common.service.ScopeErasure erasure && erasure.dataUse().isPresent();
+        out.setProperty("keepsIndex", Boolean.toString(keeps));
+        System.setProperty(ScopeOperations.FULL_PASS_PROPERTY, keeps ? "false" : "true");
+    }
+
+    /**
+     * Tries to delete a document a link scope references into, which is refused; deletes the link
+     * scope; then deletes the document.
+     */
+    static ScopeOperations.Deleted deleteLinked(String doc, Properties in, Properties out) {
+        try {
+            ScopeOperations.delete(Scope.of(PrimitiveData.nid(id(in, doc + ".pattern"))));
+            out.setProperty(doc + ".refused", "not refused");
+        } catch (IllegalStateException refused) {
+            out.setProperty(doc + ".refused", refused.getMessage());
+        }
+        ScopeOperations.Deleted link = ScopeOperations.delete(Scope.of(PrimitiveData.nid(id(in, doc + ".link"))));
+        out.setProperty(doc + ".link.indexed", Boolean.toString(link.indexed()));
+        ScopeOperations.Deleted deleted = ScopeOperations.delete(Scope.of(PrimitiveData.nid(id(in, doc + ".pattern"))));
+        out.setProperty(doc + ".indexed", Boolean.toString(deleted.indexed()));
+        out.setProperty(doc + ".has.root", Boolean.toString(PrimitiveData.get().hasPublicId(id(in, doc + ".root"))));
+        return deleted;
     }
 
     /** What the store holds of the two documents, from the ids a stage recorded. */
