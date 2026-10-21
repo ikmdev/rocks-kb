@@ -59,6 +59,8 @@ class ScopeDeleteIT {
         in.setProperty(StarterSetProbeIT.KB_FILE, StarterSetRoundTripIT.starterSet().toString());
 
         Properties written = ForkedJvm.run(Write.class, in, Duration.ofMinutes(10));
+        assertEquals("EPHEMERAL", written.getProperty("kind.line"), provider + ": a line of the document's own pattern");
+        assertEquals("EPHEMERAL", written.getProperty("kind.comment"), provider + ": a comment in the shared comment pattern");
         assertEquals("1", written.getProperty("collected"), provider + ": A's own STAMP is collected");
         assertEquals("1", written.getProperty("kept"), provider + ": the STAMP A shares with B is kept");
         assertObserved(provider, "after the delete", written);
@@ -126,6 +128,10 @@ class ScopeDeleteIT {
             out.setProperty("a.cited.nid", Long.toString(PrimitiveData.nid(a[3])));
             out.setProperty("a.comment.nid", Long.toString(PrimitiveData.nid(a[4])));
 
+            // An element of the document's own pattern and one of the shared comment pattern both classify as ephemeral,
+            // the first from its pattern (read from the nid where the layout carries it), the second from its own birth.
+            out.setProperty("kind.line", dev.ikm.tinkar.entity.boundary.EntityBoundaries.kindOf(PrimitiveData.nid(a[2])).name());
+            out.setProperty("kind.comment", dev.ikm.tinkar.entity.boundary.EntityBoundaries.kindOf(PrimitiveData.nid(a[4])).name());
             ScopeOperations.Deleted deleted = ScopeOperations.delete(Scope.of(PrimitiveData.nid(a[0])));
             out.setProperty("collected", Integer.toString(deleted.stamps()));
             out.setProperty("kept", Integer.toString(deleted.stampsKept()));
