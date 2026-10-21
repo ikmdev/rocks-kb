@@ -478,7 +478,12 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         return writeSequence.sum();
     }
 
-    /** Pattern sequences are discovered before elements are keyed under them, so an import takes two passes. */
+    /**
+     * Every nid names its pattern, so a component's pattern must be known before it is keyed. A
+     * format 2 or 3 change set lists every component's pattern in its identity index or component
+     * table, and the loader keys every nid from that before reading the records once; only a
+     * format 1 file, which has neither, has its records read twice, the first time for identities.
+     */
     @Override
     public boolean requiresMultiPassImport() {
         return true;
