@@ -66,7 +66,7 @@ class ScannerTest {
 
             ConcurrentHashMap<Long, AtomicInteger> visits = new ConcurrentHashMap<>();
             scanner.forEachParallel((record, nid) -> {
-                assertEquals(nid, dev.ikm.tinkar.common.service.EntityRecordFormat2.nid(record));
+                assertEquals(nid, dev.ikm.tinkar.common.service.EntityRecordFormat3.nid(record));
                 visits.computeIfAbsent(nid, key -> new AtomicInteger()).incrementAndGet();
             });
             assertEquals(1049, visits.size());

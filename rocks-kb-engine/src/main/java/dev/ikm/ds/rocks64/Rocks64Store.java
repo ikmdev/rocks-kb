@@ -7,7 +7,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.common.service.DataActivity;
-import dev.ikm.tinkar.common.service.EntityRecordFormat2;
+import dev.ikm.tinkar.common.service.EntityRecordFormat3;
 import dev.ikm.tinkar.common.service.NidGenerator;
 import dev.ikm.tinkar.common.service.PluggableService;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
@@ -72,7 +72,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * The 64-bit Rocks engine: a store whose keys are 64-bit nids, a pattern sequence over an
- * element sequence, holding one format 2 record per entity (design
+ * element sequence, holding one format 3 record per entity (design
  * {@code design-2026-10-07-64-bit-rocks-store}; IKE-Network/ike-issues#1258). It shares no
  * storage code with the legacy {@link dev.ikm.ds.rocks.RocksProvider}; the provider's
  * controllers choose between the two by the store's format, which this engine names in its
@@ -550,7 +550,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     public PublicId publicIdForNid(long nid) {
         byte[] record = getBytes(nid);
         if (record != null) {
-            return PublicIds.of(EntityRecordFormat2.uuids(record).toArray(new UUID[0]));
+            return PublicIds.of(EntityRecordFormat3.uuids(record).toArray(new UUID[0]));
         }
         return identityMap.publicIdOf(nid).orElseThrow(() ->
                 new IllegalStateException("No entity is stored for nid " + nid + " in " + name + ", and no public id was minted for it"));
@@ -594,8 +594,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     private byte[] merge(long nid, byte[] value, Object sourceObject, DataActivity activity, Supplier<byte[]> write) {
         checkOpen();
         Nid.validate64(nid);
-        if (!EntityRecordFormat2.isFormat2(value)) {
-            throw new IllegalArgumentException("A 64-bit store holds format 2 records; nid " + nid + " was given "
+        if (!EntityRecordFormat3.isFormat3(value)) {
+            throw new IllegalArgumentException("A 64-bit store holds format 3 records; nid " + nid + " was given "
                     + (value == null || value.length == 0 ? "no record" : "a format " + value[0] + " record"));
         }
         byte[] merged = write.get();

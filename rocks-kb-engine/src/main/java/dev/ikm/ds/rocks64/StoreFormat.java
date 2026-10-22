@@ -57,7 +57,7 @@ public final class StoreFormat {
     /** Writes the descriptor of a store this build creates. */
     static void write(WriteBatch batch, ColumnFamilyHandle handle) throws RocksDBException {
         batch.put(handle, LAYOUT.getBytes(UTF_8), NidLayout.SIXTY_FOUR_BIT.displayName().getBytes(UTF_8));
-        batch.put(handle, ENTITY_FORMAT.getBytes(UTF_8), Integer.toString(NidLayout.ENTITY_FORMAT_2).getBytes(UTF_8));
+        batch.put(handle, ENTITY_FORMAT.getBytes(UTF_8), Integer.toString(NidLayout.ENTITY_FORMAT_3).getBytes(UTF_8));
         batch.put(handle, CREATED_BY.getBytes(UTF_8), build().getBytes(UTF_8));
         batch.put(handle, CREATED_AT.getBytes(UTF_8), Instant.now().toString().getBytes(UTF_8));
     }
@@ -78,10 +78,10 @@ public final class StoreFormat {
         String layout = descriptor.get(LAYOUT);
         String format = descriptor.get(ENTITY_FORMAT);
         if (!NidLayout.SIXTY_FOUR_BIT.displayName().equals(layout)
-                || !Integer.toString(NidLayout.ENTITY_FORMAT_2).equals(format)) {
+                || !Integer.toString(NidLayout.ENTITY_FORMAT_3).equals(format)) {
             throw new IllegalStateException(root + " names layout " + layout + " and entity format " + format
                     + ", which this build does not read (it reads " + NidLayout.SIXTY_FOUR_BIT.displayName()
-                    + ", format " + NidLayout.ENTITY_FORMAT_2 + "); created by " + descriptor.get(CREATED_BY));
+                    + ", format " + NidLayout.ENTITY_FORMAT_3 + "); created by " + descriptor.get(CREATED_BY));
         }
     }
 

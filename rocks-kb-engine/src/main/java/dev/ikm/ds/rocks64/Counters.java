@@ -31,13 +31,13 @@ final class Counters {
     private static final Logger LOG = LoggerFactory.getLogger(Counters.class);
 
     /** The pattern-of-patterns: the pattern whose elements are the patterns. */
-    static final int PATTERN_OF_PATTERNS = 1;
+    static final int PATTERN_OF_PATTERNS = Nid.PATTERN_OF_PATTERNS_SEQUENCE_64;
     /** The concept pattern: element 2 of the pattern-of-patterns (settled 2026-10-07). */
-    static final int CONCEPT_PATTERN = 2;
+    static final int CONCEPT_PATTERN = Nid.CONCEPT_SEQUENCE_64;
     /** The stamp pattern: element 3 of the pattern-of-patterns. */
-    static final int STAMP_PATTERN = 3;
+    static final int STAMP_PATTERN = Nid.STAMP_SEQUENCE_64;
     /** The first pattern sequence a semantic pattern can have; the three before it are fixed. */
-    static final int FIRST_SEMANTIC_PATTERN = 4;
+    static final int FIRST_SEMANTIC_PATTERN = Nid.FIRST_SEMANTIC_SEQUENCE_64;
     /** The first element sequence of every pattern. */
     static final int FIRST_ELEMENT = 1;
 

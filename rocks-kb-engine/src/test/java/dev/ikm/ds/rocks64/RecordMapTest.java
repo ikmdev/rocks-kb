@@ -32,8 +32,9 @@ class RecordMapTest {
         try (TestDb db = new TestDb(dir)) {
             RecordMap map = ingestingMap(db);
             map.setLoadPhase(true);
-            long a = Nid.compose64(3, 1);
-            long b = Nid.compose64(3, 2);
+            // Concepts, and a semantic of the next pattern: in format 3 the nid gives the kind.
+            long a = Nid.compose64(2, 1);
+            long b = Nid.compose64(2, 2);
             long c = Nid.compose64(4, 1);
             byte[] recordA = Records.concept(a, STAMP_A);
             byte[] recordB = Records.concept(b, STAMP_A);

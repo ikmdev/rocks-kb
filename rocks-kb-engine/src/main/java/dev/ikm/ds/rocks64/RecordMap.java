@@ -1,6 +1,6 @@
 package dev.ikm.ds.rocks64;
 
-import dev.ikm.tinkar.common.service.EntityRecordFormat2;
+import dev.ikm.tinkar.common.service.EntityRecordFormat3;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -39,7 +39,7 @@ import java.util.function.LongPredicate;
  * The entity map of a 64-bit store: one record per entity under its nid, written behind by one
  * writer thread, with the references a semantic makes written in the same batch. Writes are a
  * union at every step, so no interleaving loses a version (settled 2026-10-07): a producer
- * merges its record into the pending record with {@link EntityRecordFormat2#merge}; the writer
+ * merges its record into the pending record with {@link EntityRecordFormat3#merge}; the writer
  * unions a pending record with the stored one before it writes; and a read unions the pending
  * record with the stored one while a record is pending. The store never parses a record beyond
  * what the envelope exposes.
@@ -181,7 +181,7 @@ final class RecordMap {
     }
 
     private byte[] union(byte[] older, byte[] newer) {
-        return EntityRecordFormat2.merge(older, newer, canceledStamp);
+        return EntityRecordFormat3.merge(older, newer, canceledStamp);
     }
 
     /** Merges a record into what is pending for its nid and hands it to the writer. */
@@ -322,7 +322,7 @@ final class RecordMap {
         failIfWriterDied();
         awaitPendingWrites();
         byte[] stored = stored(nid);
-        byte[] merged = union(stored == null ? null : EntityRecordFormat2.withoutVersion(stored, stampNid), record);
+        byte[] merged = union(stored == null ? null : EntityRecordFormat3.withoutVersion(stored, stampNid), record);
         try {
             db.put(entities, Keys.of(nid), merged);
         } catch (RocksDBException e) {

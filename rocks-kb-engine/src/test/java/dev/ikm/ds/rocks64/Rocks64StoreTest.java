@@ -149,7 +149,7 @@ class Rocks64StoreTest {
             assertEquals(Nid.compose64(303, 1), semantic);
             store.merge(semantic, pattern, NOT_A_SEMANTIC, Records.concept(semantic, Nid.compose64(3, 1)), null,
                     DataActivity.SYNCHRONIZABLE_EDIT);
-            assertEquals(semantic, dev.ikm.tinkar.common.service.EntityRecordFormat2.nid(store.getBytes(semantic)));
+            assertEquals(semantic, dev.ikm.tinkar.common.service.EntityRecordFormat3.nid(store.getBytes(semantic)));
 
             int beyondEightBit = 16_777_216;
             while (store.counters().next(Counters.CONCEPT_PATTERN) < beyondEightBit) {
