@@ -29,7 +29,7 @@
         <!-- The IKE starter set the starter-set round trip starts from, from starter-data-ws. -->
         <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
         <starter.set.data.directory>${project.build.directory}/data</starter.set.data.directory>
-        <test.excludedGroups>snomed,starter-set,dex,reclassify</test.excludedGroups>
+        <test.excludedGroups>snomed,starter-set,dex,reclassify,scale</test.excludedGroups>
         <!-- The heap of the test JVM and of every stage it forks. -->
         <kb.validation.heap>24g</kb.validation.heap>
         <!-- The unit tests' JVM options, which ike-parent's surefire argLine takes in. Lucene
@@ -260,7 +260,7 @@
         <profile>
             <id>dex</id>
             <properties>
-                <test.excludedGroups>snomed,starter-set,reclassify</test.excludedGroups>
+                <test.excludedGroups>snomed,starter-set,reclassify,scale</test.excludedGroups>
             </properties>
         </profile>
         <!-- Runs the tests tagged "snomed": fetches the SNOMED CT knowledge base (from
@@ -269,7 +269,7 @@
         <profile>
             <id>snomed</id>
             <properties>
-                <test.excludedGroups>starter-set,dex,reclassify</test.excludedGroups>
+                <test.excludedGroups>starter-set,dex,reclassify,scale</test.excludedGroups>
             </properties>
             <build>
                 <plugins>
@@ -327,7 +327,7 @@
         <profile>
             <id>starter-set</id>
             <properties>
-                <test.excludedGroups>snomed,dex,reclassify</test.excludedGroups>
+                <test.excludedGroups>snomed,dex,reclassify,scale</test.excludedGroups>
             </properties>
             <build>
                 <plugins>
@@ -368,8 +368,16 @@
         <profile>
             <id>reclassify</id>
             <properties>
-                <test.excludedGroups>snomed,starter-set,dex</test.excludedGroups>
+                <test.excludedGroups>snomed,starter-set,dex,scale</test.excludedGroups>
                 <kb.validation.heap>100g</kb.validation.heap>
+            </properties>
+        </profile>
+        <!-- Runs the test tagged "scale": a scope delete timed through the data-use index and by
+             reading every component, in the copy of a store named by -Dscope.scale.store. -->
+        <profile>
+            <id>scale</id>
+            <properties>
+                <test.excludedGroups>snomed,starter-set,dex,reclassify</test.excludedGroups>
             </properties>
         </profile>
     </profiles>

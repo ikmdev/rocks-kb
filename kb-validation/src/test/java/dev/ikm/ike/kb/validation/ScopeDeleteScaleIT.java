@@ -13,6 +13,7 @@ import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -26,7 +27,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * How long a scope delete takes in a large store, answered by the data-use index and by the read
  * of every component it replaces (IKE-Network/ike-issues#1313; design
  * {@code design-2026-10-20-instance-data}, "The data-use index"). Opt-in: it runs only with
- * {@code -Dscope.scale.store=<a copy of a store>}, which it writes to, and
+ * {@code -Pscale -Dscope.scale.store=<a copy of a store>}, which it writes to, and
  * {@code -Dscope.scale.provider} (default {@code ROCKS}). Never point it at a store under
  * {@code ~/Solor}: copy one first.
  *
@@ -35,6 +36,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * reading every component; the second opens the store again, so the index is read from its file,
  * and deletes a third pair through it. Each delete is timed alone.
  */
+@Tag("scale")
 class ScopeDeleteScaleIT {
 
     static final String STORE_PROPERTY = "scope.scale.store";
