@@ -398,6 +398,9 @@ class Rocks64StoreTest {
     }
 
     private static byte[] stored(Rocks64Store store, long nid) throws Exception {
+        // The record map writes through a queue: wait for it, or a loaded machine reads the bytes
+        // from before the write.
+        store.recordMap().awaitPendingWrites();
         return store.db().get(store.handle(Rocks64Store.Family.ENTITIES), Keys.of(nid));
     }
 
