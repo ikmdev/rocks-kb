@@ -60,7 +60,7 @@ final class Scanner {
         try (ReadOptions ro = new ReadOptions().setSnapshot(snapshot).setFillCache(false).setTotalOrderSeek(true);
              RocksIterator it = db.newIterator(entities, ro)) {
             for (it.seekToFirst(); it.isValid(); it.next()) {
-                action.accept(it.value(), Keys.nid(it.key()));
+                action.accept(FormatUpgrade.current(it.value()), Keys.nid(it.key()));
             }
         } finally {
             db.releaseSnapshot(snapshot);
@@ -100,7 +100,7 @@ final class Scanner {
                      .setIterateLowerBound(lower).setIterateUpperBound(upper);
              RocksIterator it = db.newIterator(entities, ro)) {
             for (it.seek(range.lower()); it.isValid(); it.next()) {
-                action.accept(it.value(), Keys.nid(it.key()));
+                action.accept(FormatUpgrade.current(it.value()), Keys.nid(it.key()));
             }
         }
     }

@@ -280,14 +280,15 @@ final class RecordMap {
         }
         byte[][] records = new byte[nids.length][];
         for (int i = 0; i < nids.length; i++) {
-            records[i] = pendingRecords[i] == null ? stored.get(i) : union(stored.get(i), pendingRecords[i]);
+            byte[] storedRecord = FormatUpgrade.current(stored.get(i));
+            records[i] = pendingRecords[i] == null ? storedRecord : union(storedRecord, pendingRecords[i]);
         }
         return records;
     }
 
     byte[] stored(long nid) {
         try {
-            return db.get(entities, Keys.of(nid));
+            return FormatUpgrade.current(db.get(entities, Keys.of(nid)));
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
@@ -454,7 +455,7 @@ final class RecordMap {
             for (int i = 0; i < nids.size(); i++) {
                 byte[] record = taken.get(i);
                 if (record != null) {
-                    batch.put(entities, keys.get(read), union(stored.get(read), record));
+                    batch.put(entities, keys.get(read), union(FormatUpgrade.current(stored.get(read)), record));
                     read++;
                 }
             }

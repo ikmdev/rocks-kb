@@ -55,6 +55,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.TreeSet;
@@ -251,7 +252,17 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                         db.write(options, batch);
                     }
                 } else {
-                    StoreFormat.verify(StoreFormat.read(db, handle(Family.FORMAT)), rocks);
+                    Map<String, String> descriptor = StoreFormat.read(db, handle(Family.FORMAT));
+                    StoreFormat.verify(descriptor, rocks);
+                    if (StoreFormat.namesFormat2(descriptor)) {
+                        if (FormatUpgrade.requested()) {
+                            FormatUpgrade.run(db, handle(Family.ENTITIES), handle(Family.FORMAT), name);
+                        } else {
+                            LOG.info("{} was created in entity format 2: its records are read as format 3 and"
+                                    + " written in format 3; open it with -D{}=true to upgrade every record",
+                                    name, FormatUpgrade.UPGRADE_PROPERTY);
+                        }
+                    }
                     identityMap.verifyBindings();
                 }
                 this.entityFileOptions = new Options(dbOptions, descriptors.get(Family.ENTITIES.ordinal()).getOptions());
@@ -304,7 +315,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         return options;
     }
 
-    private ColumnFamilyHandle handle(Family family) {
+    ColumnFamilyHandle handle(Family family) {
         return handles.get(family.ordinal());
     }
 
@@ -704,7 +715,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
             for (it.seek(lower); it.isValid(); it.next()) {
                 long nid = Keys.nid(it.key());
                 if (Arrays.binarySearch(nids, nid) >= 0) {
-                    action.accept(it.value(), nid);
+                    action.accept(FormatUpgrade.current(it.value()), nid);
                 }
             }
         }

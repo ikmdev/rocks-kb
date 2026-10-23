@@ -7,6 +7,7 @@ import dev.ikm.tinkar.common.id.impl.NidLayout;
 import dev.ikm.tinkar.common.service.DataActivity;
 import dev.ikm.tinkar.common.service.ServiceKeys;
 import dev.ikm.tinkar.common.service.ServiceProperties;
+import dev.ikm.tinkar.entity.EntityFormat2;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,10 +16,14 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.DBOptions;
 import org.rocksdb.RocksDB;
+import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +32,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -264,6 +270,144 @@ class Rocks64StoreTest {
         assertTrue(StoreFormat.holdsADatabase(rocks));
         assertFalse(StoreFormat.isSixtyFourBit(rocks));
         assertThrows(IllegalStateException.class, Rocks64Store::open);
+    }
+
+    /** A concept with two UUIDs and two versions in entity format 2, as a store created before format 3 holds it. */
+    private static final byte[] FORMAT_2_CONCEPT = HexFormat.of().parseHex(
+            "0227010282dac4090f6c6a6e6b1d4c0c8b8e3f1a2b3c4d01020f6c6a6e6b1d4c0c8b8e3f1a2b3c4d02020304036a0304036b");
+    /** The same concept in format 3. */
+    private static final byte[] FORMAT_3_CONCEPT = HexFormat.of().parseHex(
+            "03260282dac4090f6c6a6e6b1d4c0c8b8e3f1a2b3c4d01020f6c6a6e6b1d4c0c8b8e3f1a2b3c4d0202016a016b");
+    private static final long FORMAT_2_CONCEPT_NID = Nid.compose64(2, 20_000_002);
+
+    /**
+     * A store created in entity format 2 opens as it is and reads as format 3, its stored records
+     * untouched; it is upgraded only when asked, after which its descriptor names format 3
+     * (IKE-Network/ike-issues#1313).
+     */
+    @Test
+    void aStoreCreatedInFormat2IsReadAsFormat3AndUpgradedOnlyWhenAsked() throws Exception {
+        long concept = FORMAT_2_CONCEPT_NID;
+        Rocks64Store created = Rocks64Store.open();
+        try {
+            plantFormat2(created, concept, FORMAT_2_CONCEPT);
+        } finally {
+            created.close();
+        }
+
+        Rocks64Store compatible = Rocks64Store.open();
+        try {
+            assertEquals("2", descriptor(compatible).get(StoreFormat.ENTITY_FORMAT), "opened as it is");
+            assertArrayEquals(FORMAT_3_CONCEPT, compatible.getBytes(concept), "read as format 3");
+            ConcurrentHashMap<Long, byte[]> scanned = new ConcurrentHashMap<>();
+            compatible.forEachParallel((bytes, nid) -> scanned.put(nid, bytes));
+            assertArrayEquals(FORMAT_3_CONCEPT, scanned.get(concept), "scanned as format 3");
+            assertArrayEquals(FORMAT_2_CONCEPT, stored(compatible, concept), "stored as it was");
+        } finally {
+            compatible.close();
+        }
+
+        System.setProperty(FormatUpgrade.UPGRADE_PROPERTY, "true");
+        try {
+            Rocks64Store upgraded = Rocks64Store.open();
+            try {
+                Map<String, String> descriptor = descriptor(upgraded);
+                assertEquals("3", descriptor.get(StoreFormat.ENTITY_FORMAT), "upgraded");
+                assertNotNull(descriptor.get(StoreFormat.UPGRADED_BY));
+                assertNotNull(descriptor.get(StoreFormat.UPGRADED_AT));
+                assertArrayEquals(FORMAT_3_CONCEPT, stored(upgraded, concept), "rewritten in format 3");
+            } finally {
+                upgraded.close();
+            }
+        } finally {
+            System.clearProperty(FormatUpgrade.UPGRADE_PROPERTY);
+        }
+
+        Rocks64Store reopened = Rocks64Store.open();
+        try {
+            assertEquals("3", descriptor(reopened).get(StoreFormat.ENTITY_FORMAT), "kept upgraded");
+            assertArrayEquals(FORMAT_3_CONCEPT, reopened.getBytes(concept));
+        } finally {
+            reopened.close();
+        }
+    }
+
+    /** A record written to a format 2 store is written in format 3, its format 2 versions kept. */
+    @Test
+    void aRecordWrittenToAFormat2StoreIsWrittenInFormat3() throws Exception {
+        long concept = FORMAT_2_CONCEPT_NID;
+        Rocks64Store created = Rocks64Store.open();
+        try {
+            plantFormat2(created, concept, FORMAT_2_CONCEPT);
+        } finally {
+            created.close();
+        }
+        Rocks64Store compatible = Rocks64Store.open();
+        try {
+            UUID uuid = new UUID(0x0f6c6a6e6b1d4c0cL, 0x8b8e3f1a2b3c4d01L);
+            compatible.merge(concept, NOT_A_SEMANTIC, NOT_A_SEMANTIC, Records.concept(concept, new UUID[]{uuid}, Nid.compose64(3, 108)),
+                    null, DataActivity.SYNCHRONIZABLE_EDIT);
+            byte[] stored = stored(compatible, concept);
+            assertFalse(EntityFormat2.isFormat2(stored), "written in format 3");
+            assertEquals(3, Records.versionCount(stored), "the two format 2 versions and the new one");
+            assertEquals("2", descriptor(compatible).get(StoreFormat.ENTITY_FORMAT),
+                    "other records may still be in format 2");
+        } finally {
+            compatible.close();
+        }
+    }
+
+    /** A format 2 record format 3 refuses stops the upgrade, naming its nid, and leaves the store in format 2. */
+    @Test
+    void anUpgradeThatMeetsARecordFormat3RefusesStopsNamingItsNid() throws Exception {
+        // The concept with its nid in a semantic's pattern, as the format 2 fixtures held it.
+        long misfiled = Nid.compose64(200, 20_000_002);
+        Rocks64Store created = Rocks64Store.open();
+        try {
+            plantFormat2(created, misfiled, HexFormat.of().parseHex(
+                    "022801c80182dac4090f6c6a6e6b1d4c0c8b8e3f1a2b3c4d01020f6c6a6e6b1d4c0c8b8e3f1a2b3c4d02020304036a0304036b"));
+        } finally {
+            created.close();
+        }
+        System.setProperty(FormatUpgrade.UPGRADE_PROPERTY, "true");
+        try {
+            IllegalStateException refused = assertThrows(IllegalStateException.class, Rocks64Store::open);
+            assertTrue(stackMentions(refused, Long.toString(misfiled)), "the refusal names the nid");
+        } finally {
+            System.clearProperty(FormatUpgrade.UPGRADE_PROPERTY);
+        }
+        Rocks64Store compatible = Rocks64Store.open();
+        try {
+            assertEquals("2", descriptor(compatible).get(StoreFormat.ENTITY_FORMAT), "left in format 2");
+        } finally {
+            compatible.close();
+        }
+    }
+
+    /** Writes a record in format 2 and makes the store's descriptor name format 2, as a store created before format 3. */
+    private static void plantFormat2(Rocks64Store store, long nid, byte[] record) throws Exception {
+        try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
+            batch.put(store.handle(Rocks64Store.Family.ENTITIES), Keys.of(nid), record);
+            batch.put(store.handle(Rocks64Store.Family.FORMAT), StoreFormat.ENTITY_FORMAT.getBytes(UTF_8), "2".getBytes(UTF_8));
+            store.db().write(options, batch);
+        }
+    }
+
+    private static Map<String, String> descriptor(Rocks64Store store) {
+        return StoreFormat.read(store.db(), store.handle(Rocks64Store.Family.FORMAT));
+    }
+
+    private static byte[] stored(Rocks64Store store, long nid) throws Exception {
+        return store.db().get(store.handle(Rocks64Store.Family.ENTITIES), Keys.of(nid));
+    }
+
+    private static boolean stackMentions(Throwable thrown, String text) {
+        for (Throwable t = thrown; t != null; t = t.getCause()) {
+            if (t.getMessage() != null && t.getMessage().contains(text)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private interface Enumeration {

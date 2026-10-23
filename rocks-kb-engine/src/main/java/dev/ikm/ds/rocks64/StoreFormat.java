@@ -32,6 +32,15 @@ public final class StoreFormat {
     static final String ENTITY_FORMAT = "entityFormat";
     static final String CREATED_BY = "createdBy";
     static final String CREATED_AT = "createdAt";
+    static final String UPGRADED_BY = "upgradedBy";
+    static final String UPGRADED_AT = "upgradedAt";
+
+    /**
+     * The entity format of the first 64-bit stores, read still: such a store opens as it is, its
+     * records read as format 3 and its writes in format 3, until it is upgraded
+     * ({@link FormatUpgrade}; IKE-Network/ike-issues#1313).
+     */
+    static final int ENTITY_FORMAT_2 = 2;
 
     private StoreFormat() {
     }
@@ -78,11 +87,27 @@ public final class StoreFormat {
         String layout = descriptor.get(LAYOUT);
         String format = descriptor.get(ENTITY_FORMAT);
         if (!NidLayout.SIXTY_FOUR_BIT.displayName().equals(layout)
-                || !Integer.toString(NidLayout.ENTITY_FORMAT_3).equals(format)) {
+                || !(Integer.toString(NidLayout.ENTITY_FORMAT_3).equals(format) || namesFormat2(descriptor))) {
             throw new IllegalStateException(root + " names layout " + layout + " and entity format " + format
                     + ", which this build does not read (it reads " + NidLayout.SIXTY_FOUR_BIT.displayName()
-                    + ", format " + NidLayout.ENTITY_FORMAT_3 + "); created by " + descriptor.get(CREATED_BY));
+                    + ", format " + NidLayout.ENTITY_FORMAT_3 + " or " + ENTITY_FORMAT_2 + "); created by "
+                    + descriptor.get(CREATED_BY));
         }
+    }
+
+    /**
+     * Whether a store's descriptor still names format 2: it may hold format 2 records, as many as
+     * have not been written since in format 3.
+     */
+    static boolean namesFormat2(Map<String, String> descriptor) {
+        return Integer.toString(ENTITY_FORMAT_2).equals(descriptor.get(ENTITY_FORMAT));
+    }
+
+    /** Records that every record of the store is now in format 3, and when and by what it was upgraded. */
+    static void writeUpgraded(WriteBatch batch, ColumnFamilyHandle handle) throws RocksDBException {
+        batch.put(handle, ENTITY_FORMAT.getBytes(UTF_8), Integer.toString(NidLayout.ENTITY_FORMAT_3).getBytes(UTF_8));
+        batch.put(handle, UPGRADED_BY.getBytes(UTF_8), build().getBytes(UTF_8));
+        batch.put(handle, UPGRADED_AT.getBytes(UTF_8), Instant.now().toString().getBytes(UTF_8));
     }
 
     private static String build() {
