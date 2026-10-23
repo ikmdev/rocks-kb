@@ -69,8 +69,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>A persistent store is measured after it is reopened, in a JVM that did not load it, so the
  * first round is a cold read. Each operation runs {@value #DEFAULT_ROUNDS} rounds by default
  * ({@code -Dbenchmark.rounds}); the first is reported apart, and the median of the rest is the
- * measure. Every operation also counts what it visited, and the ordered and shuffled forms of
- * one question must visit the same number of things.
+ * measure. Each operation starts with the entity caches empty, so its timing does not depend on
+ * the operations before it. Every operation also counts what it visited, and the ordered and
+ * shuffled forms of one question must visit the same number of things.
  *
  * <p>Timings are compared with a reference for this machine, under
  * {@code src/test/resources/benchmarks/<machine>/<store>.properties}, where the machine is the
@@ -380,7 +381,13 @@ class StoreBenchmarkIT {
                 return count;
             });
 
+            // Each operation starts with the entity caches empty, so its warm rounds measure what it
+            // keeps in them itself. With the caches carried over, an operation that reads after a
+            // larger one found them full of the other's entities, which they then did not give up:
+            // its timing depended on what ran before it.
+            long[] everyNid = ordered.toArray();
             for (Map.Entry<String, LongSupplier> operation : operations.entrySet()) {
+                entities.invalidateCaches(everyNid);
                 time(operation.getKey(), operation.getValue(), rounds, out);
             }
         }
