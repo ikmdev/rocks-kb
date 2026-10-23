@@ -32,6 +32,11 @@
         <test.excludedGroups>snomed,starter-set,dex,reclassify</test.excludedGroups>
         <!-- The heap of the test JVM and of every stage it forks. -->
         <kb.validation.heap>24g</kb.validation.heap>
+        <!-- The unit tests' JVM options, which ike-parent's surefire argLine takes in. Lucene
+             10.5.1 turns its Vector API code on only up to Java 26 and warns on 27; the property
+             raises that limit, as in every other member. Drop it when a Lucene release supports
+             Java 27. -->
+        <argLine>--add-modules jdk.incubator.vector -Dorg.apache.lucene.vectorization.upperJavaFeatureVersion=27</argLine>
         <maven.deploy.skip>true</maven.deploy.skip>
         <!-- Tests only: no jar is made, so there is nothing to install either. -->
         <maven.install.skip>true</maven.install.skip>
