@@ -157,6 +157,8 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     }
     private final SetOnce<SearchService> searchService = new SetOnce<>();
     private volatile boolean loadPhase = false;
+    /** Whether the store was created with derived vertex identities. */
+    private final boolean vertexIdentityDerived;
     /** What uses the store's instance and ephemeral data, for scope deletes (IKE-Network/ike-issues#1313). */
     private final DataUseIndex dataUseIndex;
 
@@ -251,9 +253,11 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                         counters.save(batch, handle(Family.DEFAULT));
                         db.write(options, batch);
                     }
+                    this.vertexIdentityDerived = true;
                 } else {
                     Map<String, String> descriptor = StoreFormat.read(db, handle(Family.FORMAT));
                     StoreFormat.verify(descriptor, rocks);
+                    this.vertexIdentityDerived = StoreFormat.vertexIdentityDerived(descriptor);
                     if (StoreFormat.namesFormat2(descriptor)) {
                         if (FormatUpgrade.requested()) {
                             FormatUpgrade.run(db, handle(Family.ENTITIES), handle(Family.FORMAT), name);
@@ -498,6 +502,15 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     @Override
     public boolean requiresMultiPassImport() {
         return true;
+    }
+
+    /**
+     * A store this engine creates records the derivation version in its descriptor; one created
+     * before derivation has none there, and stays underived however it is written since.
+     */
+    @Override
+    public boolean vertexIdentityDerived() {
+        return vertexIdentityDerived;
     }
 
     /** The counters, one {@code pattern=next} per pattern. */

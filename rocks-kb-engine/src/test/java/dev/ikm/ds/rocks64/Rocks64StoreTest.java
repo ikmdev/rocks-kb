@@ -332,6 +332,45 @@ class Rocks64StoreTest {
         }
     }
 
+    /**
+     * A store this build creates records that its vertex identities are derived; one whose
+     * descriptor does not, as a store created before derivation, stays underived, an entity-format
+     * upgrade included (IKE-Network/ike-issues#1310).
+     */
+    @Test
+    void onlyAStoreCreatedWithDerivedIdentitiesSaysItsIdentitiesAreDerived() throws Exception {
+        Rocks64Store created = Rocks64Store.open();
+        try {
+            assertTrue(created.vertexIdentityDerived(), "a new store is derived");
+            assertNotNull(descriptor(created).get(StoreFormat.VERTEX_IDENTITY));
+            plantFormat2(created, FORMAT_2_CONCEPT_NID, FORMAT_2_CONCEPT);
+            try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
+                batch.delete(created.handle(Rocks64Store.Family.FORMAT), StoreFormat.VERTEX_IDENTITY.getBytes(UTF_8));
+                created.db().write(options, batch);
+            }
+        } finally {
+            created.close();
+        }
+        Rocks64Store before = Rocks64Store.open();
+        try {
+            assertFalse(before.vertexIdentityDerived(), "a store created before derivation is not");
+        } finally {
+            before.close();
+        }
+        System.setProperty(FormatUpgrade.UPGRADE_PROPERTY, "true");
+        try {
+            Rocks64Store upgraded = Rocks64Store.open();
+            try {
+                assertEquals("3", descriptor(upgraded).get(StoreFormat.ENTITY_FORMAT));
+                assertFalse(upgraded.vertexIdentityDerived(), "an upgrade rewrites records, it derives nothing");
+            } finally {
+                upgraded.close();
+            }
+        } finally {
+            System.clearProperty(FormatUpgrade.UPGRADE_PROPERTY);
+        }
+    }
+
     /** A record written to a format 2 store is written in format 3, its format 2 versions kept. */
     @Test
     void aRecordWrittenToAFormat2StoreIsWrittenInFormat3() throws Exception {

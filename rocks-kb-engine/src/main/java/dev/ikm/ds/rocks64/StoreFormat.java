@@ -1,6 +1,7 @@
 package dev.ikm.ds.rocks64;
 
 import dev.ikm.tinkar.common.id.impl.NidLayout;
+import dev.ikm.tinkar.entity.changeset.ChangeSetFormat;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
@@ -17,8 +18,8 @@ import java.util.TreeMap;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
- * The column family that names a 64-bit store's format: its layout, its entity format, and the
- * build that created it. RocksDB refuses to open a database whose column family the opener did
+ * The column family that names a 64-bit store's format: its layout, its entity format, the
+ * build that created it, and whether that build derived vertex identities. RocksDB refuses to open a database whose column family the opener did
  * not list, so every build before this one stops at open without reading or writing a 64-bit
  * store, and this build tells a 64-bit store from a legacy one by the family's presence
  * (design {@code design-2026-10-07-64-bit-rocks-store}).
@@ -34,6 +35,12 @@ public final class StoreFormat {
     static final String CREATED_AT = "createdAt";
     static final String UPGRADED_BY = "upgradedBy";
     static final String UPGRADED_AT = "upgradedAt";
+    /**
+     * The vertex-identity derivation version the store was created under; a store without it was
+     * created before derivation (IKE-Network/ike-issues#1310). An entity-format upgrade rewrites
+     * records without deriving their trees, so it never adds this.
+     */
+    static final String VERTEX_IDENTITY = "vertexIdentity";
 
     /**
      * The entity format of the first 64-bit stores, read still: such a store opens as it is, its
@@ -69,6 +76,9 @@ public final class StoreFormat {
         batch.put(handle, ENTITY_FORMAT.getBytes(UTF_8), Integer.toString(NidLayout.ENTITY_FORMAT_3).getBytes(UTF_8));
         batch.put(handle, CREATED_BY.getBytes(UTF_8), build().getBytes(UTF_8));
         batch.put(handle, CREATED_AT.getBytes(UTF_8), Instant.now().toString().getBytes(UTF_8));
+        // Everything a store of this build holds passes through the write path that derives identities.
+        batch.put(handle, VERTEX_IDENTITY.getBytes(UTF_8),
+                Integer.toString(ChangeSetFormat.VERTEX_IDENTITY_VERSION).getBytes(UTF_8));
     }
 
     /** The descriptor as stored. */
@@ -101,6 +111,11 @@ public final class StoreFormat {
      */
     static boolean namesFormat2(Map<String, String> descriptor) {
         return Integer.toString(ENTITY_FORMAT_2).equals(descriptor.get(ENTITY_FORMAT));
+    }
+
+    /** Whether a store's descriptor says it was created with derived vertex identities. */
+    static boolean vertexIdentityDerived(Map<String, String> descriptor) {
+        return descriptor.containsKey(VERTEX_IDENTITY);
     }
 
     /** Records that every record of the store is now in format 3, and when and by what it was upgraded. */
