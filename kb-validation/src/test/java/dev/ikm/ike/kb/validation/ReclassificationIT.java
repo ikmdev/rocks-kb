@@ -51,8 +51,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * each one whether its newly computed necessary normal form differs from the latest inferred form
  * and a new version must be written.
  *
- * <p>Run against a SpinedArray store zip ({@code reasoned-sa}), one per run, for example SOLOR or
- * SOLOR + GUDID from the solor-kb-ws working set:
+ * <p>Run against a 64-bit SpinedArray store zip, one per run, for example SOLOR or SOLOR + GUDID
+ * from the solor-kb-ws working set assembled with
+ * {@code -Dike.knowledge.storeController="Open 64-bit SpinedArrayStore"}. A published
+ * {@code reasoned-sa} is a sequential store, which left this working set for
+ * komet-sequential-store-plugin (IKE-Network/ike-issues#1313):
  *
  * <pre>{@code
  * ./mvnw verify -pl rocks-kb/kb-validation -Preclassify -Dit.test=ReclassificationIT \
@@ -79,7 +82,7 @@ class ReclassificationIT {
     @Test
     void reclassifyingWritesOnlyWhatChangedAndLeavesEveryInferredFormItsNormalForm() throws Exception {
         String kbProperty = System.getProperty(KB);
-        assertTrue(kbProperty != null && !kbProperty.isBlank(), "Name a reasoned-sa store zip with -D" + KB);
+        assertTrue(kbProperty != null && !kbProperty.isBlank(), "Name a 64-bit SpinedArray store zip with -D" + KB);
         Path zip = Path.of(kbProperty);
         String name = zip.getFileName().toString().replaceAll("-1-SNAPSHOT-reasoned-sa\\.zip$", "")
                 .replaceAll("\\.zip$", "");
@@ -89,7 +92,7 @@ class ReclassificationIT {
         long unzipStart = System.currentTimeMillis();
         Path store = unzip(zip, work);
         Properties in = new Properties();
-        in.setProperty(StoreStage.PROVIDER, Provider.SPINED_ARRAY.name());
+        in.setProperty(StoreStage.PROVIDER, Provider.SPINED_ARRAY_64.name());
         in.setProperty(StoreStage.STORE, store.toString());
         in.setProperty(SURVEY_EVERY, System.getProperty(SURVEY_EVERY, "1"));
         in.setProperty("unzip.millis", Long.toString(System.currentTimeMillis() - unzipStart));

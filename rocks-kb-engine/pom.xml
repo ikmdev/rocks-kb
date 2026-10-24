@@ -77,10 +77,6 @@
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>entity</artifactId>
         </dependency>
-        <dependency>
-            <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>collection</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
