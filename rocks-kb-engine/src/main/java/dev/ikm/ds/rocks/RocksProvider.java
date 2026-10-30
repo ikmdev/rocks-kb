@@ -796,11 +796,15 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         // recreate at endLoadPhase. Replace this two-mode shim with touched-nid
         // notification + per-nid catch-up when the proper design lands.
         // See LoadPhaseSearchPolicy javadoc for the full picture.
-        if (!loadPhase
-                || dev.ikm.tinkar.entity.EntityService.get().loadPhaseSearchPolicy().shouldIndexLive()) {
+        // Only a semantic of a pattern the search service indexes asks for it or counts against the threshold.
+        if (sourceObject instanceof dev.ikm.tinkar.entity.SemanticEntity<?> semantic) {
             try {
                 SearchService searchService = getSearchService();
-                searchService.index(sourceObject);
+                if (searchService.indexesPattern(semantic.patternNid())
+                        && (!loadPhase
+                        || dev.ikm.tinkar.entity.EntityService.get().loadPhaseSearchPolicy().shouldIndexLive())) {
+                    searchService.index(sourceObject);
+                }
             } catch (Exception e) {
                 // SearchService may not be available yet during startup; log at debug with the entity info.
                 LOG.debug("SearchService not available for real-time indexing; will rely on later index rebuild. Entity={}", sourceObject, e);

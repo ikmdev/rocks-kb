@@ -634,10 +634,15 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         ImmutableList<ChangeSetWriterService> writers = changeSetWriters.orElseSet(this::loadChangeSetWriters);
         writers.forEach(writer -> writer.writeToChangeSet((Entity) sourceObject, activity));
 
-        // Live indexing, within the load phase policy, as the legacy engine does.
-        if (!loadPhase || EntityService.get().loadPhaseSearchPolicy().shouldIndexLive()) {
+        // Live indexing, within the load phase policy, as the legacy engine does: only a semantic
+        // of a pattern the search service indexes asks for it or counts against the threshold.
+        if (sourceObject instanceof SemanticEntity<?> semantic) {
             try {
-                getSearchService().index(sourceObject);
+                SearchService search = getSearchService();
+                if (search.indexesPattern(semantic.patternNid())
+                        && (!loadPhase || EntityService.get().loadPhaseSearchPolicy().shouldIndexLive())) {
+                    search.index(sourceObject);
+                }
             } catch (Exception e) {
                 LOG.debug("SearchService not available for real-time indexing; will rely on later index rebuild. Entity={}",
                         sourceObject, e);
