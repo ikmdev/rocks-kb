@@ -268,6 +268,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
                         }
                     }
                     identityMap.verifyBindings();
+                    identityMap.loadUnrecorded(handle(Family.DEFAULT), handle(Family.ENTITIES));
                 }
                 this.entityFileOptions = new Options(dbOptions, descriptors.get(Family.ENTITIES.ordinal()).getOptions());
                 this.referenceFileOptions = new Options(dbOptions, descriptors.get(Family.REFERENCES.ordinal()).getOptions());
@@ -327,6 +328,11 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         return db;
     }
 
+    /** The passes the identity map has made over its entries since this store opened. */
+    long identityPasses() {
+        return identityMap.passes();
+    }
+
     Counters counters() {
         return counters;
     }
@@ -375,6 +381,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
     private void flushToDisk() {
         try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
             counters.save(batch, handle(Family.DEFAULT));
+            identityMap.saveUnrecorded(batch, handle(Family.DEFAULT));
             db.write(options, batch);
         } catch (RocksDBException e) {
             throw new RuntimeException("Could not save the counters", e);
@@ -568,7 +575,7 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
 
     /**
      * The UUIDs of the entity stored under a nid, from its record; for a nid minted and never
-     * written, from the identity map, by a scan.
+     * written, from the identity map, by at most one pass over its column in the nid's lifetime.
      */
     @Override
     public PublicId publicIdForNid(long nid) {

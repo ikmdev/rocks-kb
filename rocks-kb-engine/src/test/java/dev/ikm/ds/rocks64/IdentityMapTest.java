@@ -7,9 +7,18 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.WriteBatch;
+import org.rocksdb.WriteOptions;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,6 +41,175 @@ class IdentityMapTest {
 
     private static PublicId id(UUID... uuids) {
         return PublicIds.of(uuids);
+    }
+
+    /** What a save writes for the identity map, then a new map on the same column, as a reopen builds. */
+    private static Maps savedAndReopened(TestDb db, Maps maps) throws RocksDBException {
+        maps.identities().flush();
+        try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
+            maps.counters().save(batch, db.handle(Rocks64Store.Family.DEFAULT));
+            maps.identities().saveUnrecorded(batch, db.handle(Rocks64Store.Family.DEFAULT));
+            db.db.write(options, batch);
+        }
+        Maps reopened = open(db);
+        reopened.identities().loadUnrecorded(db.handle(Rocks64Store.Family.DEFAULT), db.handle(Rocks64Store.Family.ENTITIES));
+        return reopened;
+    }
+
+    /** A map with one nid minted and flushed, never given a record, in a session after its mint. */
+    private static Maps reopenedWithoutTheMint(TestDb db, Maps maps) throws RocksDBException {
+        maps.identities().flush();
+        try (WriteBatch batch = new WriteBatch(); WriteOptions options = new WriteOptions()) {
+            maps.counters().save(batch, db.handle(Rocks64Store.Family.DEFAULT));
+            db.db.write(options, batch);
+        }
+        return open(db);
+    }
+
+    /**
+     * A nid with no record costs one pass over the column, however often it is asked for, and the
+     * answer is the same each time: the mint is in the column and no longer in memory, as it is
+     * for a concept named only in a block once the session that first read it has closed. Without
+     * this, drawing one such concept asked for it dozens of times, at seconds a time.
+     */
+    @Test
+    void aNidWithNoRecordIsPassedOverOnceHoweverOftenItIsAskedFor(@TempDir File dir) throws RocksDBException {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            UUID uuid = UUID.randomUUID();
+            long nid = maps.identities().nidFor(EntityBinding.Concept.pattern(), id(uuid));
+            IdentityMap identities = reopenedWithoutTheMint(db, maps).identities();
+
+            for (int i = 0; i < 100; i++) {
+                assertEquals(List.of(uuid), identities.publicIdOf(nid).orElseThrow().asUuidList());
+            }
+            assertEquals(1, identities.passes());
+        }
+    }
+
+    /** A nid nothing maps to is passed over once too, and stays unknown. */
+    @Test
+    void aNidNeverMintedIsPassedOverOnce(@TempDir File dir) throws RocksDBException {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            maps.identities().nidFor(EntityBinding.Concept.pattern(), id(UUID.randomUUID()));
+            IdentityMap identities = reopenedWithoutTheMint(db, maps).identities();
+
+            long never = Nid.compose64(Counters.CONCEPT_PATTERN, 1_000);
+            for (int i = 0; i < 100; i++) {
+                assertTrue(identities.publicIdOf(never).isEmpty());
+            }
+            assertEquals(1, identities.passes());
+        }
+    }
+
+    /** Threads asking at once share one pass: each waits for it and finds the answer. */
+    @Test
+    void threadsAskingForOneNidShareOnePass(@TempDir File dir) throws Exception {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            UUID uuid = UUID.randomUUID();
+            long nid = maps.identities().nidFor(EntityBinding.Concept.pattern(), id(uuid));
+            IdentityMap identities = reopenedWithoutTheMint(db, maps).identities();
+
+            List<Callable<PublicId>> asks = new ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                asks.add(() -> identities.publicIdOf(nid).orElseThrow());
+            }
+            try (ExecutorService executor = Executors.newFixedThreadPool(asks.size())) {
+                for (Future<PublicId> answer : executor.invokeAll(asks)) {
+                    assertEquals(List.of(uuid), answer.get().asUuidList());
+                }
+            }
+            assertEquals(1, identities.passes());
+        }
+    }
+
+    /**
+     * A later session pays for nothing: what is known of nids with no record outlasts the
+     * reopen, a mint and what a pass learned, found or not.
+     */
+    @Test
+    void whatIsKnownOfNidsWithNoRecordOutlastsAReopen(@TempDir File dir) throws RocksDBException {
+        try (TestDb db = new TestDb(dir)) {
+            Maps first = open(db);
+            first.identities().bootstrap();
+            UUID learned = UUID.randomUUID();
+            long learnedNid = first.identities().nidFor(EntityBinding.Concept.pattern(), id(learned));
+            Maps second = reopenedWithoutTheMint(db, first);
+            long never = Nid.compose64(Counters.CONCEPT_PATTERN, 1_000);
+            assertEquals(List.of(learned), second.identities().publicIdOf(learnedNid).orElseThrow().asUuidList());
+            assertTrue(second.identities().publicIdOf(never).isEmpty());
+            UUID minted = UUID.randomUUID();
+            UUID alsoMinted = UUID.randomUUID();
+            long mintedNid = second.identities().nidFor(EntityBinding.Concept.pattern(), id(minted, alsoMinted));
+
+            IdentityMap third = savedAndReopened(db, second).identities();
+
+            assertEquals(List.of(learned), third.publicIdOf(learnedNid).orElseThrow().asUuidList());
+            assertEquals(id(minted, alsoMinted).asUuidList().toSet(),
+                    third.publicIdOf(mintedNid).orElseThrow().asUuidList().toSet());
+            assertTrue(third.publicIdOf(never).isEmpty());
+            assertEquals(0, third.passes());
+        }
+    }
+
+    /** A nid that has since been written, or was written before a failed session's save, is not kept. */
+    @Test
+    void aWrittenNidIsNotKept(@TempDir File dir) throws RocksDBException {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            UUID written = UUID.randomUUID();
+            UUID recordedAfterTheSave = UUID.randomUUID();
+            long writtenNid = maps.identities().nidFor(EntityBinding.Concept.pattern(), id(written));
+            long recordedNid = maps.identities().nidFor(EntityBinding.Concept.pattern(), id(recordedAfterTheSave));
+            maps.identities().written(writtenNid);
+            Maps saved = savedAndReopened(db, maps);
+            assertEquals(List.of(written), saved.identities().publicIdOf(writtenNid).orElseThrow().asUuidList());
+            assertEquals(1, saved.identities().passes(), "a written nid was not saved, so its column is read");
+
+            db.db.put(db.handle(Rocks64Store.Family.ENTITIES), Keys.of(recordedNid), new byte[]{1});
+            Maps failedOver = open(db);
+            failedOver.identities().loadUnrecorded(db.handle(Rocks64Store.Family.DEFAULT), db.handle(Rocks64Store.Family.ENTITIES));
+            assertEquals(List.of(recordedAfterTheSave), failedOver.identities().publicIdOf(recordedNid).orElseThrow().asUuidList());
+            assertEquals(1, failedOver.identities().passes(), "a nid with a record now is not kept from a save before it");
+        }
+    }
+
+    /** The memory of a miss never hides a nid: a mint of that very nid answers. */
+    @Test
+    void aMintAnswersForANidAMissRemembers(@TempDir File dir) {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            long next = Nid.compose64(Counters.CONCEPT_PATTERN, maps.counters().next(Counters.CONCEPT_PATTERN));
+            assertTrue(maps.identities().publicIdOf(next).isEmpty());
+
+            UUID uuid = UUID.randomUUID();
+            assertEquals(next, maps.identities().nidFor(EntityBinding.Concept.pattern(), id(uuid)));
+            assertEquals(List.of(uuid), maps.identities().publicIdOf(next).orElseThrow().asUuidList());
+        }
+    }
+
+    /** An erased nid's memory goes with it: the column no longer answers, and neither does memory. */
+    @Test
+    void anErasedNidIsForgotten(@TempDir File dir) throws RocksDBException {
+        try (TestDb db = new TestDb(dir)) {
+            Maps maps = open(db);
+            maps.identities().bootstrap();
+            UUID uuid = UUID.randomUUID();
+            long nid = maps.identities().nidFor(EntityBinding.Concept.pattern(), id(uuid));
+            IdentityMap identities = reopenedWithoutTheMint(db, maps).identities();
+            assertEquals(List.of(uuid), identities.publicIdOf(nid).orElseThrow().asUuidList());
+
+            identities.forget(nid, new UUID[]{uuid});
+
+            assertTrue(identities.publicIdOf(nid).isEmpty());
+        }
     }
 
     @Test

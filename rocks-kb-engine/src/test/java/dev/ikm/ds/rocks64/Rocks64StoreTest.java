@@ -108,6 +108,31 @@ class Rocks64StoreTest {
         }
     }
 
+    /**
+     * A concept named only in a document block is minted when it is read, and no record follows.
+     * The close writes its UUID to the identity column; the next session answers for it from what
+     * the close kept, with no pass over a column that may hold many millions of entries.
+     */
+    @Test
+    void aMintWithNoRecordCostsLaterSessionsNoPass() {
+        UUID uuid = UUID.randomUUID();
+        long concept;
+        Rocks64Store store = Rocks64Store.open();
+        try {
+            concept = store.getEntityKey(EntityBinding.Concept.pattern(), PublicIds.of(uuid)).nid();
+        } finally {
+            store.close();
+        }
+        Rocks64Store reopened = Rocks64Store.open();
+        try {
+            assertNull(reopened.getBytes(concept));
+            assertEquals(List.of(uuid), reopened.publicIdForNid(concept).asUuidList());
+            assertEquals(0, reopened.identityPasses());
+        } finally {
+            reopened.close();
+        }
+    }
+
     @Test
     void enumerationsFollowTheCountersAndTheRecords() {
         Rocks64Store store = Rocks64Store.open();

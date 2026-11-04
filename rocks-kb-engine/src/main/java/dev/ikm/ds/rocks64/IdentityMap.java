@@ -12,6 +12,7 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.EnvOptions;
 import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.Options;
+import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.SstFileWriter;
@@ -28,6 +29,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.BitSet;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -40,6 +42,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * The UUID to nid map of a 64-bit store, and the allocation of nids: every UUID of a component
@@ -73,6 +77,10 @@ final class IdentityMap {
     /** Entries per SST file, so a large write is several files written at once. */
     private static final long ENTRIES_PER_FILE = 4_000_000;
     private static final int BATCH = 16_384;
+    /** The key of the default column family that holds {@link #unrecorded} across a close; the counters' keys are four bytes. */
+    private static final byte[] UNRECORDED_KEY = "unrecordedIdentities".getBytes(UTF_8);
+    /** The answer for a nid the map holds no UUID for. */
+    private static final UUID[] NO_UUIDS = new UUID[0];
 
     static final long PATTERN_OF_PATTERNS_NID = Nid.compose64(Counters.PATTERN_OF_PATTERNS, Counters.PATTERN_OF_PATTERNS);
     static final long CONCEPT_PATTERN_NID = Nid.compose64(Counters.PATTERN_OF_PATTERNS, Counters.CONCEPT_PATTERN);
@@ -100,13 +108,25 @@ final class IdentityMap {
     /** The nids minted in the current load phase, by pattern and element: nothing is stored for them yet. */
     private final ConcurrentHashMap<Integer, BitSet> fresh = new ConcurrentHashMap<>();
     /**
-     * The UUIDs of nids minted here whose record has not been written: what {@link #publicIdOf}
-     * answers from until the record arrives, when the store drops the entry ({@link #written}).
-     * Vertex identity derivation asks for every component a definition references, and in a
-     * parallel load most are minted before they are written; left to the scan, each would have
-     * cost a pass over the tables and the column (IKE-Network/ike-issues#1310).
+     * The UUIDs of nids with no record: what {@link #publicIdOf} answers from until the record
+     * arrives, when the store drops the entry ({@link #written}). A mint puts its UUIDs here, and
+     * a pass over the column puts what it found, {@link #NO_UUIDS} for a nid it did not find, so
+     * no nid costs a second pass. Vertex identity derivation asks for every component a
+     * definition references, and in a parallel load most are minted before they are written;
+     * left to the scan, each would have cost a pass over the tables and the column
+     * (IKE-Network/ike-issues#1310).
+     *
+     * <p>A save keeps these in the default column family and an open reads them back. A mint can
+     * outlive its process with no record: reading a concept named only in a document block mints
+     * a nid for it, a close writes the UUID to the column, and no record ever follows. Left to
+     * the scan, drawing six such concepts in a restored conversation held Komet's FX thread for
+     * seven minutes on a store of 76 million identities.
      */
-    private final ConcurrentHashMap<Long, UUID[]> unwritten = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, UUID[]> unrecorded = new ConcurrentHashMap<>();
+    /** One pass over the column at a time: a thread that waits may find its answer in {@link #unrecorded}. */
+    private final ReentrantLock passes = new ReentrantLock();
+    /** The passes made since this map was built. */
+    private final LongAdder passCount = new LongAdder();
     /** Whether the column holds nothing but the fixed bindings, which memory answers: true for a store created here until a write. */
     private volatile boolean columnHoldsOnlyFixed;
     private final LockTable locks = new LockTable();
@@ -183,18 +203,34 @@ final class IdentityMap {
         }
     }
 
-    /** The nid of a UUID the store knows, from memory first and then the column. */
     /**
-     * The UUIDs minted for a nid: what its mint recorded while its record is unwritten, else the
-     * tables held in memory, then the column, scanned whole. The scan is correctness over speed,
-     * for a nid minted before this store recorded mints, or one whose record was erased. Empty
-     * when the nid was never minted here.
+     * The UUIDs of a nid with no record: what is {@linkplain #unrecorded known of it}, else what
+     * a pass finds in the tables held in memory and then the column, kept so the pass is not
+     * repeated. The pass is correctness over speed, for a nid minted before this store recorded
+     * mints, or one whose record was erased. Empty when the nid was never minted here.
      */
     Optional<PublicId> publicIdOf(long nid) {
-        UUID[] minted = unwritten.get(nid);
-        if (minted != null) {
-            return Optional.of(PublicIds.of(minted));
+        UUID[] known = unrecorded.get(nid);
+        if (known == null) {
+            passes.lock();
+            try {
+                known = unrecorded.get(nid);
+                if (known == null) {
+                    UUID[] found = pass(nid);
+                    // A mint during the pass knows better than a pass that began before it.
+                    UUID[] minted = unrecorded.putIfAbsent(nid, found);
+                    known = minted == null ? found : minted;
+                }
+            } finally {
+                passes.unlock();
+            }
         }
+        return known.length == 0 ? Optional.empty() : Optional.of(PublicIds.of(known));
+    }
+
+    /** The UUIDs mapped to a nid, read from every entry there is; {@link #NO_UUIDS} when none is. */
+    private UUID[] pass(long nid) {
+        passCount.increment();
         List<UUID> uuids = new ArrayList<>();
         fixed.forEach((uuid, bound) -> {
             if (bound == nid) {
@@ -211,7 +247,9 @@ final class IdentityMap {
             }
         }
         if (uuids.isEmpty() && !columnHoldsOnlyFixed) {
-            try (RocksIterator iterator = db.newIterator(handle)) {
+            // Every block once: a block cache holds what point reads want, not this.
+            try (ReadOptions options = new ReadOptions().setFillCache(false);
+                 RocksIterator iterator = db.newIterator(handle, options)) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                     if (Keys.nid(iterator.value()) == nid) {
                         uuids.add(Keys.uuid(iterator.key()));
@@ -219,7 +257,67 @@ final class IdentityMap {
                 }
             }
         }
-        return uuids.isEmpty() ? Optional.empty() : Optional.of(PublicIds.of(uuids.toArray(new UUID[0])));
+        return uuids.isEmpty() ? NO_UUIDS : uuids.toArray(new UUID[0]);
+    }
+
+    /** The passes over the entries this map has made since it was built. */
+    long passes() {
+        return passCount.sum();
+    }
+
+    /**
+     * Adds what is known of the nids with no record to a save, so a later session answers them
+     * without a pass. A load phase keeps none: its mints are about to be written, and may be many.
+     *
+     * @param batch    the save's batch
+     * @param defaults the default column family
+     */
+    void saveUnrecorded(WriteBatch batch, ColumnFamilyHandle defaults) throws RocksDBException {
+        if (loadPhase) {
+            return;
+        }
+        Map<Long, UUID[]> entries = new HashMap<>(unrecorded);
+        if (entries.isEmpty()) {
+            batch.delete(defaults, UNRECORDED_KEY);
+            return;
+        }
+        int size = 0;
+        for (UUID[] uuids : entries.values()) {
+            size += Long.BYTES + Integer.BYTES + uuids.length * 2 * Long.BYTES;
+        }
+        ByteBuffer value = ByteBuffer.allocate(size);
+        entries.forEach((nid, uuids) -> {
+            value.putLong(nid).putInt(uuids.length);
+            for (UUID uuid : uuids) {
+                value.putLong(uuid.getMostSignificantBits()).putLong(uuid.getLeastSignificantBits());
+            }
+        });
+        batch.put(defaults, UNRECORDED_KEY, value.array());
+    }
+
+    /**
+     * Reads back what {@link #saveUnrecorded} kept, without the nids that have a record now: a
+     * session that failed before its next save leaves those behind.
+     *
+     * @param defaults the default column family
+     * @param entities the column of the records
+     */
+    void loadUnrecorded(ColumnFamilyHandle defaults, ColumnFamilyHandle entities) throws RocksDBException {
+        byte[] saved = db.get(defaults, UNRECORDED_KEY);
+        if (saved == null) {
+            return;
+        }
+        ByteBuffer value = ByteBuffer.wrap(saved);
+        while (value.hasRemaining()) {
+            long nid = value.getLong();
+            UUID[] uuids = new UUID[value.getInt()];
+            for (int i = 0; i < uuids.length; i++) {
+                uuids[i] = new UUID(value.getLong(), value.getLong());
+            }
+            if (db.get(entities, Keys.of(nid)) == null) {
+                unrecorded.put(nid, uuids);
+            }
+        }
     }
 
     /**
@@ -232,7 +330,7 @@ final class IdentityMap {
      */
     void forget(long nid, UUID[] uuids) {
         flush();
-        unwritten.remove(nid);
+        unrecorded.remove(nid);
         for (UUID uuid : uuids) {
             if (fixed.containsKey(uuid)) {
                 continue;
@@ -245,6 +343,7 @@ final class IdentityMap {
         }
     }
 
+    /** The nid of a UUID the store knows, from memory first and then the column. */
     Optional<Long> nid(UUID uuid) {
         long nid = lookup(uuid);
         return nid == 0 ? Optional.empty() : Optional.of(nid);
@@ -252,7 +351,7 @@ final class IdentityMap {
 
     /** A record is written for the nid: its UUIDs are in the record now. */
     void written(long nid) {
-        unwritten.remove(nid);
+        unrecorded.remove(nid);
     }
 
     boolean knows(UUID uuid) {
@@ -378,7 +477,7 @@ final class IdentityMap {
             if (known == null) {
                 nid = allocator.getAsLong();
                 allocated = true;
-                unwritten.put(nid, uuids.clone());
+                unrecorded.put(nid, uuids.clone());
                 if (loadPhase) {
                     markFresh(nid);
                 }
