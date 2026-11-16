@@ -241,6 +241,60 @@ class RecordMapTest {
         }
     }
 
+    /**
+     * A record offered to a run that another thread opened an instant before must read back.
+     * A concurrent map publishes a new entry before it counts it, so for that instant the open
+     * runs hold the run yet report themselves empty: FormatVersion3IT, in a loaded reactor
+     * build, read two pattern chronologies as absent right after their put (2026-11-16), each
+     * in the open run of the pattern of patterns, with nothing sealed and nothing ingested. Each
+     * round here begins with no run open, and every thread offers a record of a new pattern at
+     * once, so that one thread opens the run while the others join it.
+     */
+    @Test
+    void aRecordOfARunAnotherThreadJustOpenedIsReadable(@TempDir File dir) throws Exception {
+        try (TestDb db = new TestDb(dir)) {
+            RecordMap map = ingestingMap(db);
+            int threads = 4 * Runtime.getRuntime().availableProcessors();
+            int rounds = 300;
+            java.util.concurrent.atomic.AtomicInteger unreadable = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicInteger pattern = new java.util.concurrent.atomic.AtomicInteger(100);
+            // The last thread to arrive ends the round's phase, which ingests its run, and begins
+            // the next one with a new pattern: every round starts with no run open.
+            java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(threads, () -> {
+                map.setLoadPhase(false);
+                map.setLoadPhase(true);
+                pattern.incrementAndGet();
+            });
+            java.util.List<Thread> workers = new java.util.ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                int element = t + 1;
+                Thread worker = new Thread(() -> {
+                    try {
+                        for (int r = 0; r < rounds; r++) {
+                            start.await();
+                            long nid = Nid.compose64(pattern.get(), element);
+                            map.put(nid, Records.concept(nid, STAMP_A), true);
+                            if (map.get(nid) == null) {
+                                unreadable.incrementAndGet();
+                            }
+                        }
+                    } catch (InterruptedException | java.util.concurrent.BrokenBarrierException e) {
+                        throw new IllegalStateException(e);
+                    }
+                });
+                workers.add(worker);
+                worker.start();
+            }
+            for (Thread worker : workers) {
+                worker.join();
+            }
+            map.setLoadPhase(false);
+            assertEquals(0, unreadable.get(), "records unreadable right after their put, in a run another thread had just opened");
+            assertEquals((long) threads * rounds, map.recordsIngested(), "records ingested");
+            map.close();
+        }
+    }
+
     @Test
     void sortPairsOrdersByBothKeys() {
         long[] a = {5, 3, 5, 1, 3, 5, 2, 9, 9, 0, 7, 7, 7, 4, 6, 8, 5, 3, 1, 2};

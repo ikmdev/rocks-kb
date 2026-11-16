@@ -134,6 +134,8 @@ final class RecordMap {
         /** Won by the one thread that seals and writes this run. */
         final AtomicBoolean sealing = new AtomicBoolean();
         volatile boolean closed;
+        /** Set once the run is out of the sealed set, ingested or failed: what a drain waits for. */
+        volatile boolean written;
 
         Run(int pattern) {
             this.pattern = pattern;
@@ -363,9 +365,9 @@ final class RecordMap {
     }
 
     void awaitPendingWrites() {
-        if (loadPhase || !sealed.isEmpty() || !runs.isEmpty()) {
-            ingestEverything();
-        }
+        // Always: with nothing open or sealed the drain costs next to nothing, and whether
+        // anything is cannot be read from a size count (IKE-Network/ike-issues#1389).
+        ingestEverything();
         awaitFlushedUpTo(enqueued.get(), referencesEnqueued.get());
     }
 
@@ -544,10 +546,14 @@ final class RecordMap {
         return true;
     }
 
+    /**
+     * The record a run holds for a nid: in the open run of its pattern, else in a run being
+     * written; null if none does. Looked up, never decided by a size count: a concurrent map
+     * publishes a new run before it counts it, so in that instant the open runs read as empty
+     * while one holds a record put into it. A load in a busy reactor build read two pattern
+     * chronologies as absent right after their put so (IKE-Network/ike-issues#1389).
+     */
     private byte[] inRuns(long nid) {
-        if (runs.isEmpty() && sealed.isEmpty()) {
-            return null;
-        }
         Run run = runs.get(Nid.patternSequence64(nid));
         byte[] record = run == null ? null : run.records.get(nid);
         if (record == null) {
@@ -565,6 +571,7 @@ final class RecordMap {
     private void writeRun(Run run) {
         if (run.records.isEmpty()) {
             sealed.remove(run);
+            run.written = true;
             return;
         }
         File file = new File(ingest.directory(), "records-" + run.pattern + "-" + runsWritten.incrementAndGet() + ".sst");
@@ -588,6 +595,7 @@ final class RecordMap {
         } finally {
             file.delete();
             sealed.remove(run);
+            run.written = true;
         }
     }
 
@@ -644,16 +652,27 @@ final class RecordMap {
         }
     }
 
-    /** Writes every run and the partial chunk: the end of a load phase, or a scan that must see everything. */
+    /**
+     * Writes every run and the partial chunk: the end of a load phase, or a scan that must see
+     * everything. A run another thread is sealing is that thread's to write, and this waits for
+     * that run itself to be written, not for the sealed set to read empty: the set's size count
+     * lags its entries, and a thread that loses a run's seal can look before the winner has
+     * added the run to the set (IKE-Network/ike-issues#1389). The open runs are read before the
+     * sealed ones, the reverse of a seal's hand-off, so every run is found in one or the other.
+     */
     void ingestEverything() {
+        List<Run> othersToWrite = new ArrayList<>();
         for (Run run : new ArrayList<>(runs.values())) {
-            sealAndWrite(run);
+            if (!sealAndWrite(run)) {
+                othersToWrite.add(run);
+            }
         }
-        // A run another thread is sealing is that thread's to write; everything is ingested
-        // once the sealed set is empty.
-        while (!sealed.isEmpty()) {
-            failIfWriterDied();
-            LockSupport.parkNanos(100_000);
+        othersToWrite.addAll(sealed);
+        for (Run run : othersToWrite) {
+            while (!run.written) {
+                failIfWriterDied();
+                LockSupport.parkNanos(100_000);
+            }
         }
         long[] referenced;
         long[] referencing;
