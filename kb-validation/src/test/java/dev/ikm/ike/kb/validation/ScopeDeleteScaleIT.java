@@ -94,8 +94,8 @@ class ScopeDeleteScaleIT {
             ConceptFacade documents = EntityProxy.Concept.make(PublicIds.newRandom());
             ConceptFacade term = EntityProxy.Concept.make(PublicIds.newRandom());
             try (StampedWriter w = writer.writer(KernelConcept.SOLOR_MODULE, "scope scale knowledge")) {
-                ScopeDeleteIT.Write.module(w, KernelConcept.EPHEMERAL_MODULE, KernelConcept.SOLOR_MODULE);
-                ScopeDeleteIT.Write.module(w, documents, KernelConcept.EPHEMERAL_MODULE);
+                ScopeDeleteIT.Write.module(w, KernelConcept.FILE_MODULE, KernelConcept.SOLOR_MODULE);
+                ScopeDeleteIT.Write.module(w, documents, KernelConcept.FILE_MODULE);
                 w.concept(term.publicId());
                 w.fullyQualifiedName(term.publicId(), "Scope scale term " + round);
                 w.commit();

@@ -1021,6 +1021,30 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         return removal;
     }
 
+    /** A new change-set file for a module's data, from the first of this store's change-set writers that keeps any. */
+    @Override
+    public java.util.Optional<java.io.File> newChangeSet(long moduleNid) {
+        ImmutableList<ChangeSetWriterService> writers = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
+        for (ChangeSetWriterService writer : writers) {
+            java.util.Optional<java.io.File> file = writer.newChangeSet(moduleNid);
+            if (file.isPresent()) {
+                return file;
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** Removes knowledge components' records from what each of this store's change-set writers keeps as knowledge. */
+    @Override
+    public ChangeSetRemoval removeFromKnowledgeChangeSets(java.util.Set<UUID> components) {
+        ChangeSetRemoval removal = ChangeSetRemoval.NONE;
+        ImmutableList<ChangeSetWriterService> writers = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
+        for (ChangeSetWriterService writer : writers) {
+            removal = removal.plus(writer.removeKnowledgeComponents(components));
+        }
+        return removal;
+    }
+
     @Override
     public void forEachSemanticNidForComponent(long componentNid, LongProcedure procedure) {
         ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidLayout.active().rocksKeyForNid(componentNid));

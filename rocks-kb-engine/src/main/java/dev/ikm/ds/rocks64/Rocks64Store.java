@@ -874,6 +874,28 @@ public final class Rocks64Store implements RocksEngine, NidGenerator, dev.ikm.ti
         return removal;
     }
 
+    /** A new change-set file for a module's data, from the first of this store's change-set writers that keeps any. */
+    @Override
+    public java.util.Optional<java.io.File> newChangeSet(long moduleNid) {
+        for (ChangeSetWriterService writer : changeSetWriters.orElseSet(this::loadChangeSetWriters)) {
+            java.util.Optional<java.io.File> file = writer.newChangeSet(moduleNid);
+            if (file.isPresent()) {
+                return file;
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** Removes knowledge components' records from what each of this store's change-set writers keeps as knowledge. */
+    @Override
+    public ChangeSetRemoval removeFromKnowledgeChangeSets(java.util.Set<UUID> components) {
+        ChangeSetRemoval removal = ChangeSetRemoval.NONE;
+        for (ChangeSetWriterService writer : changeSetWriters.orElseSet(this::loadChangeSetWriters)) {
+            removal = removal.plus(writer.removeKnowledgeComponents(components));
+        }
+        return removal;
+    }
+
     /** The references pending are read before the stored ones: the writer moves a reference from the one to the other. */
     @Override
     public void forEachSemanticNidForComponent(long componentNid, LongProcedure procedure) {

@@ -117,8 +117,8 @@ class ScopeDeleteIT {
             ConceptFacade documents = EntityProxy.Concept.make(PublicIds.newRandom());
             ConceptFacade term = EntityProxy.Concept.make(PublicIds.newRandom());
             try (StampedWriter writer = writer(KernelConcept.SOLOR_MODULE, "scope delete knowledge")) {
-                module(writer, KernelConcept.EPHEMERAL_MODULE, KernelConcept.SOLOR_MODULE);
-                module(writer, documents, KernelConcept.EPHEMERAL_MODULE);
+                module(writer, KernelConcept.FILE_MODULE, KernelConcept.SOLOR_MODULE);
+                module(writer, documents, KernelConcept.FILE_MODULE);
                 writer.concept(term.publicId());
                 writer.fullyQualifiedName(term.publicId(), "Scope delete term");
                 writer.commit();
